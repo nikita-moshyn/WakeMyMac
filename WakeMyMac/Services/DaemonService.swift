@@ -19,7 +19,7 @@ let DmnService = DaemonService.shared
 final class DaemonService {
     
     static let shared = DaemonService()
-    
+
     private init() {}
     
     func createBackgroundDaemon() -> Process {
@@ -35,21 +35,4 @@ final class DaemonService {
         return daemon
     }
     
-    // MARK: - Status
-    func alwaysActiveDaemonStatus() -> SessionStatus? {
-        let session = StorService.loadAlwaysActiveSession()
-        return SessionStatus(session: session)
-    }
-    
-    func isAlwaysActiveDaemonRunning() -> Bool {
-        guard let session = StorService.loadAlwaysActiveSession() else { return false }
-        return isDaemonRunning(in: session)
-    }
-    
-    // TODO: - Add WakeSession
-    
-    private func isDaemonRunning(in session: Session) -> Bool {
-        guard session.daemonID != 0 else { return false }
-        return kill(session.daemonID, 0) == 0
-    }
 }

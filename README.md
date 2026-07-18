@@ -95,6 +95,15 @@ wake status
 
 This displays the start time of the session and any remaining time if a duration was set.
 
+### Local Session Storage
+
+WakeMyMac keeps its local runtime state in separate JSON files inside `~/.wake/`:
+
+- `~/.wake/wakeSession` for a standard wake session.
+- `~/.wake/alwaysActiveSession` for an always-active session.
+
+The directory is created with owner-only permissions and is removed automatically when it becomes empty. Existing `~/wakeSession` data from older versions is migrated into `~/.wake/` the next time it is loaded.
+
 ### Security Note
 
 #### Security Considerations:

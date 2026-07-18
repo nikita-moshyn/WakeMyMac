@@ -16,15 +16,28 @@ import Foundation
 import ArgumentParser
 
 struct AlwaysActiveStart: ParsableCommand {
-    
+
     static var configuration = CommandConfiguration(commandName: "start", abstract: "Start an always active session.")
-    
+
+    private var storage: any SessionStorage = AppServices.sessionStorage
+
     @Flag(name: .shortAndLong, help: "Force start if another session is active.")
     var force: Bool = false
     
     @Flag(name: .shortAndLong, help: "Enable debug mode for additional logging")
     var debug: Bool = false
-    
+
+    private enum CodingKeys: String, CodingKey {
+        case force
+        case debug
+    }
+
+    init() {}
+
+    init(storage: any SessionStorage) {
+        self.storage = storage
+    }
+
     func run() throws {
         if !A11yService.isAccessibilityEnabled() {
             cprint("Always Active requires accessibility access to function correctly", .warning)
@@ -48,7 +61,7 @@ struct AlwaysActiveStart: ParsableCommand {
             dprint("Daemon started with PID: \(daemon.processIdentifier)", debug)
         
             let session = AlwaysActiveSession(daemonID: daemon.processIdentifier)
-            StorService.saveAlwaysActiveSession(session)
+            try storage.saveAlwaysActiveSession(session)
             
             RunLoop.main.run()
         } catch {
@@ -63,8 +76,12 @@ struct AlwaysActiveStart: ParsableCommand {
         } _: {
             cprint("Failed to start Always Active session.", .error)
             dprint("Attempting to terminate daemon and clean session", debug)
-            
-            StorService.deleteAlwaysActiveSession()
+
+            do {
+                try storage.deleteAlwaysActiveSession()
+            } catch {
+                dprint("Failed to clean session storage: \(error.localizedDescription)", debug)
+            }
             killSelf()
         }
     }

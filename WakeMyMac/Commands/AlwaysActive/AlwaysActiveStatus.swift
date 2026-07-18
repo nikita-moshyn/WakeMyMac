@@ -17,12 +17,24 @@ import ArgumentParser
 
 struct AlwaysActiveStatus: ParsableCommand {
     static var configuration = CommandConfiguration(commandName: "status", abstract: "Check the status of the Always Active session")
-    
+
+    private var storage: any SessionStorage = AppServices.sessionStorage
+
     @Flag(name: .shortAndLong, help: "Enable debug mode for additional details")
     var debug: Bool = false
-    
+
+    private enum CodingKeys: String, CodingKey {
+        case debug
+    }
+
+    init() {}
+
+    init(storage: any SessionStorage) {
+        self.storage = storage
+    }
+
     func run() throws {
-        if let status = DmnService.alwaysActiveDaemonStatus() {
+        if let session = try storage.loadAlwaysActiveSession(), let status = SessionStatus(session: session) {
             cprint("Always Active Session started at: \(status.startDate.formatted())")
             
             if status.remainingTime != nil {
@@ -31,8 +43,8 @@ struct AlwaysActiveStatus: ParsableCommand {
                 cprint("Session is running indefinitely", .green)
             }
             
-            if debug, let pid = StorService.loadAlwaysActiveSession()?.daemonID {
-                dprint("Daemon id: \(pid)", debug)
+            if debug {
+                dprint("Daemon id: \(session.daemonID)", debug)
             }
         } else {
             cprint("No active daemon found", .yellow)

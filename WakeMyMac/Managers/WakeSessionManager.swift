@@ -16,27 +16,18 @@ import Foundation
 import OSLog
 
 class WakeSessionManager {
-    
-    private lazy var sessionFilePath = getSessionFilePath()
+
+    private let storage: any SessionStorage
     private var session: WakeSession?
-    
+
     init() {
-        guard savedSessionExists() else {
-            logger.info("Saved session is not detected.")
-            
-            dprint("Saved session is not detected")
-            return
-        }
-        session = retrieveSavedSession()
+        self.storage = AppServices.sessionStorage
+        restoreSession()
     }
-    
-    
-    private func getSessionFilePath() -> URL {
-        if #available(macOS 13.8, *) {
-            return FileManager.default.homeDirectoryForCurrentUser.appending(path: Constants.wakeSession.value)
-        } else {
-            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(Constants.wakeSession.value)
-        }
+
+    init(storage: any SessionStorage) {
+        self.storage = storage
+        restoreSession()
     }
     
     func getCurrentSession() -> WakeSession? {
@@ -44,19 +35,21 @@ class WakeSessionManager {
     }
     
     func refreshSession() {
-        self.session = retrieveSavedSession()
+        restoreSession()
     }
-    
-    private func retrieveSavedSession() -> WakeSession? {
+
+    private func restoreSession() {
         do {
-            let data = try Data(contentsOf: sessionFilePath)
-            let decoder = JSONDecoder()
-            let session = try decoder.decode(WakeSession.self, from: data)
-            return session
+            session = try storage.loadWakeSession()
         } catch {
+            session = nil
             logger.error("Failed to load session: \(error.localizedDescription)")
         }
-        return nil
+
+        if session == nil {
+            logger.info("Saved session is not detected.")
+            dprint("Saved session is not detected")
+        }
     }
     
     func sessionIsActive() -> Bool {
@@ -68,24 +61,20 @@ class WakeSessionManager {
     }
     
     func savedSessionExists() -> Bool {
-        let status = FileManager.default.fileExists(atPath: getSessionFilePath().path)
-        logger.info("Saved session exist: \(status)")
-        return status
+        do {
+            let exists = try storage.loadWakeSession() != nil
+            logger.info("Saved session exists: \(exists)")
+            return exists
+        } catch {
+            logger.error("Failed to check saved session: \(error.localizedDescription)")
+            return false
+        }
     }
     
     func saveSession(_ session: WakeSession) throws {
         logger.info("Attempting to save new session")
-        
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(session)
-            deleteFileIfExists()
-            try data.write(to: sessionFilePath)
-        } catch {
-            logger.error("Failed to save session: \(error.localizedDescription)")
-            throw(error)
-        }
-        
+
+        try storage.saveWakeSession(session)
         self.session = session
     }
     
@@ -95,14 +84,9 @@ class WakeSessionManager {
     }
     
     private func deleteFileIfExists() {
-        guard savedSessionExists() else {
-            logger.info("Saved session is not exist.")
-            return
-        }
-        
         do {
-            try FileManager.default.removeItem(at: sessionFilePath)
-            logger.info("Session file was successfyly removed")
+            try storage.deleteWakeSession()
+            logger.info("Session file was successfully removed")
         } catch {
             logger.error("Failed to delete session file: \(error.localizedDescription)")
         }
@@ -118,10 +102,9 @@ class WakeSessionManager {
     @discardableResult
     func saveAssertion(id: IOPMAssertionID) -> Bool {
         guard var session else { return false }
-        
+
         do {
             session.assertionID = id
-            releaseSession()
             try saveSession(session)
             return true
         } catch {

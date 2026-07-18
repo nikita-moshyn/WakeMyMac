@@ -17,12 +17,24 @@ import ArgumentParser
 
 struct AlwaysActiveStop: ParsableCommand {
     static var configuration = CommandConfiguration(commandName: "stop", abstract: "Stop an Always Active session")
-    
+
+    private var storage: any SessionStorage = AppServices.sessionStorage
+
     @Flag(name: .shortAndLong, help: "Forcefully terminate the daemon if it cannot be stopped gracefully")
     var force: Bool = false
-    
+
+    private enum CodingKeys: String, CodingKey {
+        case force
+    }
+
+    init() {}
+
+    init(storage: any SessionStorage) {
+        self.storage = storage
+    }
+
     func run() throws {
-        guard let session = StorService.loadAlwaysActiveSession() else {
+        guard let session = try storage.loadAlwaysActiveSession() else {
             cprint("No Always Active session is currently running", .warning)
             return
         }
@@ -39,7 +51,7 @@ struct AlwaysActiveStop: ParsableCommand {
             cprint("Failed to stop the daemon. Use '--force' to terminate it", .error)
             return
         }
-        StorService.deleteAlwaysActiveSession()
+        try storage.deleteAlwaysActiveSession()
         cprint("Always Active session has been successfully stopped", .success)
     }
     

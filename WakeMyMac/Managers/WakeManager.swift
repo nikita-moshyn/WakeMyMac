@@ -18,11 +18,10 @@ import IOKit.pwr_mgt
 
 final class WakeManager: WakeSessionManager {
     
-    static let current = WakeManager()
+    static let current = WakeManager(storage: AppServices.sessionStorage)
     
-    private override init() {
-        super.init()
-        
+    override init(storage: any SessionStorage) {
+        super.init(storage: storage)
     }
     
     /// Start function will override any existing

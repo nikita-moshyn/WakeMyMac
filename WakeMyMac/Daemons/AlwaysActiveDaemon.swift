@@ -18,10 +18,22 @@ import Cocoa
 
 final class AlwaysActiveDaemon: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "alwaysActive-wake-daemon", abstract: "Daemon process to manage macOS sleep prevention session", shouldDisplay: false)
-    
+
+    private var storage: any SessionStorage = AppServices.sessionStorage
+
     @Flag(help: "Start the always active session.")
     var start: Bool = false
-    
+
+    private enum CodingKeys: String, CodingKey {
+        case start
+    }
+
+    required init() {}
+
+    init(storage: any SessionStorage) {
+        self.storage = storage
+    }
+
     func run() throws {
         guard preCheck() else { send(.failure); return }
         
@@ -42,7 +54,7 @@ final class AlwaysActiveDaemon: ParsableCommand {
     
     private func stopAlwaysActiveSession() {
         KEService.stopActivity()
-        StorService.deleteAlwaysActiveSession()
+        try? storage.deleteAlwaysActiveSession()
         killSelf()
     }
 }
