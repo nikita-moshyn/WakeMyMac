@@ -23,7 +23,7 @@ final class WakeManager: WakeSessionManager {
         super.init(storage: storage)
     }
     
-    func start(duration: TimeInterval? = nil, force: Bool = false) throws {
+    func start(duration: TimeInterval? = nil, force: Bool = false, onSuccess: (() -> Void)? = nil, onFailure: (() -> Void)? = nil) throws {
         let active = try sessionIsActive()
         if active, !force {
             logger.info("Attempting to start a new session while another session is active")
@@ -41,13 +41,12 @@ final class WakeManager: WakeSessionManager {
             try releaseSession()
         }
 
-        try startDaemon(duration: duration)
+        try startDaemon(duration: duration, onSuccess: onSuccess, onFailure: onFailure)
     }
 
-    private func startDaemon(duration: TimeInterval?) throws {
+    private func startDaemon(duration: TimeInterval?, onSuccess: (() -> Void)?, onFailure: (() -> Void)?) throws {
         logger.info("Setting up daemon process.")
 
-        setupSignalHandler(duration: duration)
         let daemon = DmnService.createBackgroundDaemon()
         daemon.arguments = ["wake-daemon", "--start"]
 
@@ -55,35 +54,20 @@ final class WakeManager: WakeSessionManager {
             daemon.arguments?.append(contentsOf: ["--duration", "\(duration)"])
         }
 
-        try daemon.run()
-        RunLoop.main.run()
-    }
-
-    private func setupSignalHandler(duration: TimeInterval?) {
-        let successSignal = DispatchSource.makeSignalSource(signal: Signal.success.rawValue, queue: .main)
-        let failureSignal = DispatchSource.makeSignalSource(signal: Signal.failure.rawValue, queue: .main)
-
-        signal(Signal.success.rawValue, SIG_IGN)
-        signal(Signal.failure.rawValue, SIG_IGN)
-
-        successSignal.setEventHandler {
-            if let duration {
+        switch try SigService.waitForDaemonStartup(starting: daemon.run) {
+        case .success:
+            if let onSuccess {
+                onSuccess()
+            } else if let duration {
                 cprint("Wake session started successfully. Duration: \(formatDuration(duration)).", .success)
             } else {
                 cprint("Wake session started successfully. Duration: indefinite.", .success)
             }
-            successSignal.cancel()
-            exit(0)
+        case .failure:
+            try? releaseSession()
+            onFailure?()
+            throw WakeManagerError.couldNotStart
         }
-
-        failureSignal.setEventHandler { [weak self] in
-            try? self?.releaseSession()
-            failureSignal.cancel()
-            exit(1)
-        }
-
-        successSignal.resume()
-        failureSignal.resume()
     }
     func stop(force: Bool = false) throws -> WakeStopResult {
         try requireReadableSessionState()
@@ -127,10 +111,13 @@ enum WakeStopResult {
 }
 
 enum WakeManagerError: LocalizedError {
+    case couldNotStart
     case couldNotStop
 
     var errorDescription: String? {
         switch self {
+        case .couldNotStart:
+            "Failed to start the wake session daemon."
         case .couldNotStop:
             "Failed to terminate the wake session daemon."
         }

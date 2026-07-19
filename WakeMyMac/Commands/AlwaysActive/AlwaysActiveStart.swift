@@ -19,7 +19,7 @@ struct AlwaysActiveStart: ParsableCommand {
 
     static var configuration = CommandConfiguration(commandName: "start", abstract: "Start an Always Active session.")
 
-    private var storage: any SessionStorage = AppServices.sessionStorage
+    private var manager = AlwaysActiveManager.current
 
     @Argument(help: "Activity mode: 'keyboard'/'k' or 'mouse'/'m'.")
     var mode: AlwaysActiveMode = .keyboard
@@ -39,7 +39,7 @@ struct AlwaysActiveStart: ParsableCommand {
     init() {}
 
     init(storage: any SessionStorage) {
-        self.storage = storage
+        manager = AlwaysActiveManager(storage: storage)
     }
 
     func run() throws {
@@ -49,8 +49,28 @@ struct AlwaysActiveStart: ParsableCommand {
         }
 
         do {
-            guard try prepareForStart() else { return }
-            try startAlwaysActiveDaemon()
+            let hasActiveSession = try manager.status() != nil
+            var shouldReplaceActiveSession = force
+
+            if hasActiveSession, !force {
+                cprint("An Always Active session is already active.", .warning)
+                guard askForConfirmation("Do you want to overwrite the current Always Active session?") else {
+                    cprint("Operation canceled. Existing Always Active session remains active.")
+                    return
+                }
+                shouldReplaceActiveSession = true
+            }
+
+            try manager.start(
+                mode: mode,
+                replacingActiveSession: shouldReplaceActiveSession,
+                force: force,
+                debug: debug,
+                onSuccess: {
+                    cprint("Always Active session started successfully.", .success)
+                },
+                onFailure: {}
+            )
         } catch let exitCode as ExitCode {
             throw exitCode
         } catch {
@@ -71,78 +91,5 @@ struct AlwaysActiveStart: ParsableCommand {
             throw ExitCode.failure
         }
         cprint("Enable Terminal under Privacy & Security > Accessibility, then run 'wake aa start' again.")
-    }
-
-    private func prepareForStart() throws -> Bool {
-        guard let session = try storage.loadAlwaysActiveSession() else { return true }
-        guard processIsRunning(session.daemonID) else {
-            try storage.deleteAlwaysActiveSession()
-            return true
-        }
-
-        if !force {
-            cprint("An Always Active session is already active.", .warning)
-            guard askForConfirmation("Do you want to overwrite the current Always Active session?") else {
-                cprint("Operation canceled. Existing Always Active session remains active.")
-                return false
-            }
-        }
-
-        let signal: Signal = force ? .kill : .terminate
-        guard send(signal, session.daemonID) == .success else {
-            throw AlwaysActiveCommandError.couldNotStopExistingSession
-        }
-        try storage.deleteAlwaysActiveSession()
-        return true
-    }
-
-    private func startAlwaysActiveDaemon() throws {
-        setupSignalHandler()
-
-        let daemon = DmnService.createBackgroundDaemon()
-        daemon.arguments = ["always-active-daemon", "--start", "--mode", mode.rawValue]
-
-        do {
-            try daemon.run()
-            dprint("Started daemon (PID \(daemon.processIdentifier)).", debug)
-
-            let session = AlwaysActiveSession(daemonID: daemon.processIdentifier, mode: mode)
-            try storage.saveAlwaysActiveSession(session)
-
-            RunLoop.main.run()
-        } catch {
-            if daemon.isRunning {
-                daemon.terminate()
-            }
-            try? storage.deleteAlwaysActiveSession()
-            throw error
-        }
-    }
-
-    private func setupSignalHandler() {
-        SigService.setupSignalHandler {
-            cprint("Always Active session started successfully.", .success)
-            killSelf()
-        } _: {
-            dprint("Removing partial Always Active session state after daemon startup failure.", debug)
-
-            do {
-                try storage.deleteAlwaysActiveSession()
-            } catch {
-                dprint("Failed to clean session state: \(error.localizedDescription)", debug)
-            }
-            killSelf(exitCode: 1)
-        }
-    }
-}
-
-private enum AlwaysActiveCommandError: LocalizedError {
-    case couldNotStopExistingSession
-
-    var errorDescription: String? {
-        switch self {
-        case .couldNotStopExistingSession:
-            "Failed to terminate the existing Always Active daemon."
-        }
     }
 }

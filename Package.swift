@@ -13,28 +13,28 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.1.0")
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.1.0"),
+        .package(url: "https://github.com/tuist/Noora", exact: "0.51.3")
     ],
     targets: [
         .executableTarget(
             name: "WakeMyMac",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser", type: .static)
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "Noora", package: "Noora")
             ],
             path: "WakeMyMac",
-//            exclude: ["Tests"],
-//            resources: [],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
             ],
             linkerSettings: [
                 .linkedFramework("IOKit")
             ]
-        )//,
-//        .testTarget(
-//            name: "WakeMyMacTests",
-//            dependencies: ["WakeMyMac"],
-//            path: "WakeMyMacTests"
-//        )
+        ),
+        .testTarget(
+            name: "WakeMyMacTests",
+            dependencies: ["WakeMyMac"],
+            path: "WakeMyMacTests"
+        )
     ]
 )

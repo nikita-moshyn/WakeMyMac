@@ -1,13 +1,49 @@
 {
-  "originHash" : "3a8956a7ad158e9e7738d8bccc9e0c2e2fed39e2eadf4ee8274f0e64f59695ed",
+  "originHash" : "06befe19186c58190e1c6ba992552351aa94662af2bc6915e29971702528f38d",
   "pins" : [
+    {
+      "identity" : "noora",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tuist/Noora",
+      "state" : {
+        "revision" : "99d3bef655819d530ad467c017ae4ff7db27b0a3",
+        "version" : "0.51.3"
+      }
+    },
+    {
+      "identity" : "path",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tuist/path",
+      "state" : {
+        "revision" : "7c74ac435e03a927c3a73134c48b61e60221abcb",
+        "version" : "0.3.8"
+      }
+    },
+    {
+      "identity" : "rainbow",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/onevcat/Rainbow",
+      "state" : {
+        "revision" : "cdf146ae671b2624917648b61c908d1244b98ca1",
+        "version" : "4.2.1"
+      }
+    },
     {
       "identity" : "swift-argument-parser",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/mnmn13/swift-argument-parser.git",
+      "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "336cae02f98997d786246e907ea28d0967bdbfbb"
+        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+        "version" : "1.8.2"
+      }
+    },
+    {
+      "identity" : "swift-log",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-log",
+      "state" : {
+        "revision" : "a878e7f8f46cfc0e1125e565b5c08e7d5272dc9a",
+        "version" : "1.14.0"
       }
     }
   ],

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4E4F4F520000000000000003 /* Noora in Frameworks */ = {isa = PBXBuildFile; productRef = 4E4F4F520000000000000002 /* Noora */; };
 		AD8306A92D403EE800BF3477 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = AD8306A82D403EE800BF3477 /* ArgumentParser */; };
 /* End PBXBuildFile section */
 
@@ -37,6 +38,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AD8306A92D403EE800BF3477 /* ArgumentParser in Frameworks */,
+				4E4F4F520000000000000003 /* Noora in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -81,6 +83,7 @@
 			name = WakeMyMac;
 			packageProductDependencies = (
 				AD8306A82D403EE800BF3477 /* ArgumentParser */,
+				4E4F4F520000000000000002 /* Noora */,
 			);
 			productName = WakeMyMac;
 			productReference = AD83057F2D38412900BF3477 /* WakeMyMac */;
@@ -113,6 +116,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AD8306A72D403EE800BF3477 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
+				4E4F4F520000000000000001 /* XCRemoteSwiftPackageReference "Noora" */,
 			);
 			productRefGroup = AD8305802D38412900BF3477 /* Products */;
 			projectDirPath = "";
@@ -300,17 +304,30 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		4E4F4F520000000000000001 /* XCRemoteSwiftPackageReference "Noora" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tuist/Noora";
+			requirement = {
+				kind = exactVersion;
+				version = 0.51.3;
+			};
+		};
 		AD8306A72D403EE800BF3477 /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mnmn13/swift-argument-parser.git";
+			repositoryURL = "https://github.com/apple/swift-argument-parser.git";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		4E4F4F520000000000000002 /* Noora */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4E4F4F520000000000000001 /* XCRemoteSwiftPackageReference "Noora" */;
+			productName = Noora;
+		};
 		AD8306A82D403EE800BF3477 /* ArgumentParser */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AD8306A72D403EE800BF3477 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;

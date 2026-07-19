@@ -18,7 +18,7 @@ import ArgumentParser
 struct AlwaysActiveStop: ParsableCommand {
     static var configuration = CommandConfiguration(commandName: "stop", abstract: "Stop the Always Active session.")
 
-    private var storage: any SessionStorage = AppServices.sessionStorage
+    private var manager = AlwaysActiveManager.current
 
     @Flag(name: .shortAndLong, help: "Send SIGKILL instead of SIGTERM to the Always Active daemon.")
     var force: Bool = false
@@ -30,37 +30,24 @@ struct AlwaysActiveStop: ParsableCommand {
     init() {}
 
     init(storage: any SessionStorage) {
-        self.storage = storage
+        manager = AlwaysActiveManager(storage: storage)
     }
 
     func run() throws {
         do {
-            guard let session = try storage.loadAlwaysActiveSession() else {
+            switch try manager.stop(force: force) {
+            case .stopped:
+                cprint("Always Active session successfully stopped.", .success)
+            case .notRunning:
                 cprint("No active Always Active daemon found.")
-                return
-            }
-
-            guard processIsRunning(session.daemonID) else {
-                try storage.deleteAlwaysActiveSession()
+            case .staleStateRemoved:
                 cprint("No active Always Active daemon found. Stale session state was removed.")
-                return
             }
-
-            let signal: Signal = force ? .kill : .terminate
-            guard send(signal, session.daemonID) == .success else {
-                let message = force
-                    ? "Failed to forcefully terminate the Always Active daemon."
-                    : "Failed to gracefully terminate the Always Active daemon. Use 'wake aa stop --force' to send SIGKILL."
-                cprint(message, .error)
-                throw ExitCode.failure
-            }
-
-            try storage.deleteAlwaysActiveSession()
-            cprint("Always Active session successfully stopped.", .success)
         } catch let exitCode as ExitCode {
             throw exitCode
         } catch {
-            cprint("Failed to stop Always Active session: \(error.localizedDescription)", .error)
+            let suggestion = force ? "" : " Try 'wake aa stop --force'."
+            cprint("Failed to stop Always Active session: \(error.localizedDescription)\(suggestion)", .error)
             throw ExitCode.failure
         }
     }

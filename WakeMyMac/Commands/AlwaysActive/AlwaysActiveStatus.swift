@@ -18,7 +18,7 @@ import ArgumentParser
 struct AlwaysActiveStatus: ParsableCommand {
     static var configuration = CommandConfiguration(commandName: "status", abstract: "Check the status of the Always Active session.")
 
-    private var storage: any SessionStorage = AppServices.sessionStorage
+    private var manager = AlwaysActiveManager.current
 
     @Flag(name: .shortAndLong, help: "Print the active daemon PID.")
     var debug: Bool = false
@@ -30,24 +30,20 @@ struct AlwaysActiveStatus: ParsableCommand {
     init() {}
 
     init(storage: any SessionStorage) {
-        self.storage = storage
+        manager = AlwaysActiveManager(storage: storage)
     }
 
     func run() throws {
         do {
-            guard let session = try storage.loadAlwaysActiveSession() else {
+            switch try manager.statusResult() {
+            case .inactive:
                 cprint("Always Active is inactive.")
-                return
-            }
-
-            guard processIsRunning(session.daemonID) else {
-                try storage.deleteAlwaysActiveSession()
+            case .staleStateRemoved:
                 cprint("Always Active is inactive. Stale session state was removed.")
-                return
+            case .active(let session):
+                cprint("Always Active session is active in \(session.mode.rawValue) mode.", .success)
+                dprint("Daemon ID: \(session.daemonID)", debug)
             }
-
-            cprint("Always Active session is active in \(session.mode.rawValue) mode.", .success)
-            dprint("Daemon ID: \(session.daemonID)", debug)
         } catch {
             cprint("Failed to check Always Active status: \(error.localizedDescription)", .error)
             throw ExitCode.failure

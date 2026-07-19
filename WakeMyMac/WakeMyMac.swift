@@ -14,6 +14,7 @@
 
 import Foundation
 import ArgumentParser
+import Darwin
 
 
 struct WakeMyMac: ParsableCommand {
@@ -37,6 +38,12 @@ struct WakeMyMac: ParsableCommand {
                                                     defaultSubcommand: nil)
 
     func run() throws {
-        throw CleanExit.helpRequest(self)
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["NO_TTY"] == nil,
+              isatty(STDIN_FILENO) == 1,
+              isatty(STDOUT_FILENO) == 1 else {
+            throw CleanExit.helpRequest(self)
+        }
+        try WakeInteractiveUI().run()
     }
 }
