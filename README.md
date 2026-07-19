@@ -7,6 +7,7 @@
 - Prevent macOS from sleeping with configurable wake sessions.
 - Schedule sessions for specified durations (e.g., "1h", "120min") or run indefinitely.
 - Start, stop, and check the status of a wake session.
+- Use a guided terminal interface powered by [Noora](https://github.com/tuist/Noora).
 - Integrated daemon mode to maintain an active session in the background.
 - Built with Swift and [swift-argument-parser](https://github.com/apple/swift-argument-parser).
 - **Security Focus:** Designed to operate securely in environments with MDM restrictions. However, extended wake sessions mean that if a device is lost or stolen while unlocked, there could be an increased risk of unauthorized access. Always monitor your devices, even when using secure software.
@@ -48,6 +49,20 @@ brew upgrade wakemymac
 ## Usage
 
 Once installed, use the command `wake` to manage your wake sessions.
+
+### Interactive Interface
+
+Run `wake` without a subcommand in an interactive terminal to open the guided interface:
+
+```bash
+wake
+```
+
+WakeMyMac opens in an isolated full-screen terminal buffer, so navigation and status updates never add prompt history. When the interface closes, the previous terminal screen is restored exactly as it was.
+
+Use the up and down arrows (or `k` and `j`) to move, press Return to select, `Esc` to go back, and `q` to quit. Wake and Always Active timing updates live in the header. Duration controls, details, confirmations, custom input, Accessibility setup, and Always Active modes all replace content inside the same frame.
+
+All direct commands remain available for scripts and experienced users. When input or output is redirected, running `wake` without a subcommand continues to print command help instead of opening an interactive prompt.
 
 ### Starting a Wake Session
 
@@ -94,6 +109,44 @@ wake status
 ```
 
 This displays the start time of the session and any remaining time if a duration was set.
+
+### Always Active Sessions
+
+Always Active simulates input after four minutes without keyboard or mouse activity. Keyboard mode is used by default:
+
+```bash
+wake aa start
+wake aa start keyboard
+wake aa start k
+```
+
+To move the cursor by one unit in a random direction instead, start the session in mouse mode:
+
+```bash
+wake aa start mouse
+wake aa start m
+```
+
+Only one Always Active session can run at a time. Stop the current session before changing modes, or use `wake aa start <mode> --force` to replace it. Use `wake aa status` to see the active mode.
+
+Debug builds also provide a short diagnostic flow:
+
+```bash
+wake test aa start mouse
+```
+
+The diagnostic uses a one-second idle timeout, holds the current process run loop, verifies the generated event and cursor movement, releases its event service and idle watcher, and prints the results. It does not launch a daemon or modify Always Active session storage. The `test` command is excluded from Release builds.
+
+### Local Session Storage
+
+WakeMyMac keeps its local runtime state in separate JSON files inside `~/.wake/`:
+
+- `~/.wake/wakeSession` for a standard wake session.
+- `~/.wake/alwaysActiveSession` for an always-active session.
+
+The always-active session file records its selected mode for status output. The daemon receives that mode through its launch arguments and does not use the session file as configuration.
+
+The directory is created with owner-only permissions and is removed automatically when it becomes empty. Existing `~/wakeSession` data from older versions is migrated into `~/.wake/` the next time it is loaded.
 
 ### Security Note
 

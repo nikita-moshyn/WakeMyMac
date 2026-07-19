@@ -14,200 +14,120 @@
 
 import Foundation
 
-let StorService = StorageService.shared
+final class FileSessionStorage: SessionStorage {
+    static let shared = FileSessionStorage()
 
-final class StorageService {
-    
-    static let shared = StorageService()
-    
     private let folderName = ".wake"
-    
-    private var hiddenFolderURL: URL {
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
-        return homeDirectory.appendingPathComponent(folderName)
-    }
-    
-    private let queue = DispatchQueue(label: "com.wakeCLI.fileServiceQueue", attributes: .concurrent)
-    
     private let fileManager: FileManager
-    
-    private init() {
-        self.fileManager = .default
-    }
-    
-    // MARK: - Core
-    private func saveFile<T: Encodable>(fileType: FileType, content: T) throws {
-        try queue.sync(flags: .barrier) {
-            try ensureHiddenFolderExists()
-            let fileURL = hiddenFolderURL.appendingPathComponent(fileType.fileName)
-            
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = .prettyPrinted
-            let data = try encoder.encode(content)
-            try data.write(to: fileURL, options: .atomic)
-        }
-    }
-    
-    private func loadFile<T: Decodable>(fileType: FileType, as type: T.Type) throws -> T {
-        return try queue.sync {
-            let fileURL = hiddenFolderURL.appendingPathComponent(fileType.fileName)
-            
-            guard fileManager.fileExists(atPath: fileURL.path) else {
-                throw StorageServiceError.fileNotFound(fileType.fileName)
-            }
-            
-            let data = try Data(contentsOf: fileURL)
-            
-            let decoder = JSONDecoder()
-            return try decoder.decode(T.self, from: data)
-        }
-    }
-    
-    private func deleteFile(fileType: FileType) throws {
-        try queue.sync(flags: .barrier) {
-            let fileURL = hiddenFolderURL.appendingPathComponent(fileType.fileName)
-            
-            guard fileManager.fileExists(atPath: fileURL.path) else {
-                // If the file doesn't exist, do nothing
-                return
-            }
-            
-            try fileManager.removeItem(at: fileURL)
-            try cleanupHiddenFolderIfEmpty()
-        }
-    }
-    
-    private func ensureHiddenFolderExists() throws {
-        if !fileManager.fileExists(atPath: hiddenFolderURL.path) {
-            try fileManager.createDirectory(at: hiddenFolderURL, withIntermediateDirectories: true, attributes: [
-                .posixPermissions: 0o700 // Только владелец может читать, писать и выполнять
-            ])
-        }
-    }
-    
-    private func cleanupHiddenFolderIfEmpty() throws {
-        let files = try fileManager.contentsOfDirectory(atPath: hiddenFolderURL.path)
-        if files.isEmpty {
-            try fileManager.removeItem(at: hiddenFolderURL)
-        }
-    }
-    
-    // MARK: - Public
-    
-    func wakeSessionIsActive() -> Bool {
-        return queue.sync {
-            let fileURL = hiddenFolderURL.appendingPathComponent(FileType.wakeSession.fileName)
-            return fileManager.fileExists(atPath: fileURL.path)
-        }
-    }
-    
-    func alwaysActiveSessionIsActive() -> Bool {
-        return queue.sync {
-            let fileURL = hiddenFolderURL.appendingPathComponent(FileType.alwaysActiveSession.fileName)
-            return fileManager.fileExists(atPath: fileURL.path)
-        }
-    }
-    
-    func hasAnyFiles() -> Bool {
-        return queue.sync {
-            guard fileManager.fileExists(atPath: hiddenFolderURL.path) else { return false }
-            let files = try? fileManager.contentsOfDirectory(atPath: hiddenFolderURL.path)
-            return (files?.count ?? 0) > 0
-        }
-    }
-    
-    // MARK: - Main interface
-    
-    // MARK: - Save
-    @discardableResult
-    func saveWakeSession(_ session: WakeSession) -> Bool {
-        (try? saveFile(fileType: .wakeSession, content: session)) != nil
-    }
-    
-    @discardableResult
-    func saveWakeSessionAssertionID(id: IOPMAssertionID) -> Bool {
-        guard var session = loadWakeSession() else { return false }
-        
-        session.assertionID = id
-        deleteWakeSession()
-        return saveWakeSession(session)
-    }
-    
-    @discardableResult
-    func saveAlwaysActiveSession(_ session: AlwaysActiveSession) -> Bool {
-        (try? saveFile(fileType: .alwaysActiveSession, content: session)) != nil
-    }
-    
-    // TODO: - Save User Settings
-    @available(*, unavailable, message: "Not Implemented")
-    func saveUserSettings() -> Bool { false }
+    private let queue = DispatchQueue(label: "com.wakeCLI.fileSessionStorage", attributes: .concurrent)
 
-    
-    // MARK: - Load
-    func loadWakeSession() -> WakeSession? {
-        try? loadFile(fileType: .wakeSession, as: WakeSession.self)
+    private var storageDirectoryURL: URL {
+        fileManager.homeDirectoryForCurrentUser.appendingPathComponent(folderName)
     }
-    
-    func loadAlwaysActiveSession() -> AlwaysActiveSession? {
-        try? loadFile(fileType: .alwaysActiveSession, as: AlwaysActiveSession.self)
+
+    private var legacyWakeSessionURL: URL {
+        fileManager.homeDirectoryForCurrentUser.appendingPathComponent(Constants.wakeSession.rawValue)
     }
-    
-    // TODO: - Load User Settings
-    @available(*, unavailable, message: "Not Implemented")
-    func loadUserSettings() {}
-    
-    
-    // MARK: - Delete
-    @discardableResult
-    func deleteWakeSession() -> Bool {
-        (try? deleteFile(fileType: .wakeSession)) != nil
+
+    private init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
     }
-    
-    @discardableResult
-    func deleteAlwaysActiveSession() -> Bool {
-        (try? deleteFile(fileType: .alwaysActiveSession)) != nil
+
+    func loadWakeSession() throws -> WakeSession? {
+        if let session = try loadFile(.wakeSession, as: WakeSession.self) {
+            return session
+        }
+
+        return try migrateLegacyWakeSession()
     }
-    
-    // TODO: - Load User Settings
-    @available(*, unavailable, message: "Not Implemented")
-    @discardableResult
-    func deleteUserSettings() -> Bool {
-        (try? deleteFile(fileType: .config)) != nil
+
+    func saveWakeSession(_ session: WakeSession) throws {
+        try saveFile(session, to: .wakeSession)
+    }
+
+    func deleteWakeSession() throws {
+        try deleteFile(.wakeSession)
+    }
+
+    func loadAlwaysActiveSession() throws -> AlwaysActiveSession? {
+        try loadFile(.alwaysActiveSession, as: AlwaysActiveSession.self)
+    }
+
+    func saveAlwaysActiveSession(_ session: AlwaysActiveSession) throws {
+        try saveFile(session, to: .alwaysActiveSession)
+    }
+
+    func deleteAlwaysActiveSession() throws {
+        try deleteFile(.alwaysActiveSession)
+    }
+
+    private func saveFile<Value: Encodable>(_ value: Value, to file: SessionFile) throws {
+        try queue.sync(flags: .barrier) {
+            try ensureStorageDirectoryExists()
+            let data = try JSONEncoder().encode(value)
+            try data.write(to: fileURL(for: file), options: .atomic)
+        }
+    }
+
+    private func loadFile<Value: Decodable>(_ file: SessionFile, as type: Value.Type) throws -> Value? {
+        try queue.sync {
+            let url = fileURL(for: file)
+            guard fileManager.fileExists(atPath: url.path) else { return nil }
+
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(type, from: data)
+        }
+    }
+
+    private func deleteFile(_ file: SessionFile) throws {
+        try queue.sync(flags: .barrier) {
+            let url = fileURL(for: file)
+            guard fileManager.fileExists(atPath: url.path) else { return }
+
+            try fileManager.removeItem(at: url)
+            try removeStorageDirectoryIfEmpty()
+        }
+    }
+
+    private func fileURL(for file: SessionFile) -> URL {
+        storageDirectoryURL.appendingPathComponent(file.fileName)
+    }
+
+    private func ensureStorageDirectoryExists() throws {
+        guard !fileManager.fileExists(atPath: storageDirectoryURL.path) else { return }
+
+        try fileManager.createDirectory(at: storageDirectoryURL, withIntermediateDirectories: true, attributes: [
+            .posixPermissions: 0o700
+        ])
+    }
+
+    private func removeStorageDirectoryIfEmpty() throws {
+        let files = try fileManager.contentsOfDirectory(atPath: storageDirectoryURL.path)
+        guard files.isEmpty else { return }
+        try fileManager.removeItem(at: storageDirectoryURL)
+    }
+
+    private func migrateLegacyWakeSession() throws -> WakeSession? {
+        guard fileManager.fileExists(atPath: legacyWakeSessionURL.path) else { return nil }
+
+        let data = try Data(contentsOf: legacyWakeSessionURL)
+        let session = try JSONDecoder().decode(WakeSession.self, from: data)
+        try saveWakeSession(session)
+        try? fileManager.removeItem(at: legacyWakeSessionURL)
+        return session
     }
 }
 
-enum FileType {
+private enum SessionFile {
     case wakeSession
     case alwaysActiveSession
-    
-    // Settings
-    case config
-    
-    fileprivate var fileName: String {
-        return switch self {
-        case .wakeSession: Constants.wakeSession.rawValue
-        case .alwaysActiveSession: Constants.alwaysActiveSession.rawValue
-        case .config: ""
-        }
-    }
-}
 
-enum StorageServiceError: Error, LocalizedError {
-    case fileNotFound(String)
-    case invalidContentType
-    case failedToCreateFolder
-    case failedToDeleteFolder
-    
-    var errorDescription: String? {
+    var fileName: String {
         switch self {
-        case .fileNotFound(let fileName):
-            return "File '\(fileName)' not found."
-        case .invalidContentType:
-            return "Invalid content type for saving."
-        case .failedToCreateFolder:
-            return "Failed to create the hidden folder."
-        case .failedToDeleteFolder:
-            return "Failed to delete the hidden folder."
+        case .wakeSession:
+            Constants.wakeSession.rawValue
+        case .alwaysActiveSession:
+            Constants.alwaysActiveSession.rawValue
         }
     }
 }

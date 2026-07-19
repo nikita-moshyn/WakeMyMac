@@ -27,8 +27,8 @@ final class AccessibilityService {
         AXIsProcessTrusted()
     }
     
-    func openAccessibilitySettings() {
-        guard let url = URL(string: Constants.accessibilitySettingsURL.value) else { return }
-        NSWorkspace.shared.open(url)
+    func openAccessibilitySettings() -> Bool {
+        guard let url = URL(string: Constants.accessibilitySettingsURL.value) else { return false }
+        return NSWorkspace.shared.open(url)
     }
 }

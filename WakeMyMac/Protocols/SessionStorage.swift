@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import Foundation
-import OSLog
+protocol SessionStorage {
+    func loadWakeSession() throws -> WakeSession?
+    func saveWakeSession(_ session: WakeSession) throws
+    func deleteWakeSession() throws
 
-// MARK: - Global Logger
-/// A global logger for the application.
-/// Subsystem and category are used to organise log entries.
-let logger = Logger(subsystem: Constants.loggerSubsystem.value, category: Constants.loggerCategory.value)
+    func loadAlwaysActiveSession() throws -> AlwaysActiveSession?
+    func saveAlwaysActiveSession(_ session: AlwaysActiveSession) throws
+    func deleteAlwaysActiveSession() throws
+}

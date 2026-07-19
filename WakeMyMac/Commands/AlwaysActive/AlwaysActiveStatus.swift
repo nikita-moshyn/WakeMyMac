@@ -16,26 +16,37 @@ import Foundation
 import ArgumentParser
 
 struct AlwaysActiveStatus: ParsableCommand {
-    static var configuration = CommandConfiguration(commandName: "status", abstract: "Check the status of the Always Active session")
-    
-    @Flag(name: .shortAndLong, help: "Enable debug mode for additional details")
+    static var configuration = CommandConfiguration(commandName: "status", abstract: "Check the status of the Always Active session.")
+
+    private var manager = AlwaysActiveManager.current
+
+    @Flag(name: .shortAndLong, help: "Print the active daemon PID.")
     var debug: Bool = false
-    
+
+    private enum CodingKeys: String, CodingKey {
+        case debug
+    }
+
+    init() {}
+
+    init(storage: any SessionStorage) {
+        manager = AlwaysActiveManager(storage: storage)
+    }
+
     func run() throws {
-        if let status = DmnService.alwaysActiveDaemonStatus() {
-            cprint("Always Active Session started at: \(status.startDate.formatted())")
-            
-            if status.remainingTime != nil {
-                cprint(status.getTimeRemainingFormatted(), .green)
-            } else {
-                cprint("Session is running indefinitely", .green)
+        do {
+            switch try manager.statusResult() {
+            case .inactive:
+                cprint("Always Active is inactive.")
+            case .staleStateRemoved:
+                cprint("Always Active is inactive. Stale session state was removed.")
+            case .active(let session):
+                cprint("Always Active session is active in \(session.mode.rawValue) mode.", .success)
+                dprint("Daemon ID: \(session.daemonID)", debug)
             }
-            
-            if debug, let pid = StorService.loadAlwaysActiveSession()?.daemonID {
-                dprint("Daemon id: \(pid)", debug)
-            }
-        } else {
-            cprint("No active daemon found", .yellow)
+        } catch {
+            cprint("Failed to check Always Active status: \(error.localizedDescription)", .error)
+            throw ExitCode.failure
         }
     }
 }

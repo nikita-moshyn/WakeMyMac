@@ -19,22 +19,23 @@ struct Status: ParsableCommand {
     static var configuration = CommandConfiguration(abstract: "Check the status of the current wake session.")
     
     func run() throws {
-        if let status = WakeManager.current.status() {
-            print("Session started at: \(status.startTime.formatted())")
-            
-            if let remaining = status.remainingTime {
-                print("Time remaining: \(formatDuration(remaining))")
-            } else {
-                print("Session is running indefinitely.")
+        do {
+            guard let status = try WakeManager.current.status() else {
+                cprint("No active wake session found.")
+                return
             }
-        } else {
-            print("No active wake session.")
+
+            cprint("Wake session is active.", .success)
+            cprint("Session started at: \(status.startTime.formatted())")
+
+            if let remaining = status.remainingTime {
+                cprint("Time remaining: \(formatDuration(remaining))")
+            } else {
+                cprint("Session duration: indefinite.")
+            }
+        } catch {
+            cprint(error.localizedDescription, .error)
+            throw ExitCode.failure
         }
-    }
-    
-    func formatDuration(_ interval: TimeInterval) -> String {
-        let hours = Int(interval) / 3600
-        let minutes = (Int(interval) % 3600) / 60
-        return "\(hours)h \(minutes)m"
     }
 }

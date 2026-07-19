@@ -14,22 +14,36 @@
 
 import Foundation
 import ArgumentParser
+import Darwin
 
 
 struct WakeMyMac: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Prevent your macOS device from sleeping with advanced scheduling and configuration options.",
-                                                    subcommands: [Start.self, Stop.self, Status.self, WakeDaemon.self, AlwaysActiveCommand.self, AlwaysActiveDaemon.self],
-                                                    defaultSubcommand: nil)
-    @Flag(name: .shortAndLong, help: "Show the current Wake version.")
-    var version: Bool = false
-    
-    func run() throws {
-        printVersion()
+    private static var availableSubcommands: [ParsableCommand.Type] {
+        var subcommands: [ParsableCommand.Type] = [Start.self,
+                                                    Stop.self,
+                                                    Status.self,
+                                                    WakeDaemon.self,
+                                                    AlwaysActiveCommand.self,
+                                                    AlwaysActiveDaemon.self]
+#if DEBUG
+        subcommands.append(AlwaysActiveTestCommand.self)
+#endif
+        return subcommands
     }
-    
-    private func printVersion() {
-        if version {
-            cprint("WakeMyMac version: \(appVersion)", .white)
+
+    static let configuration = CommandConfiguration(commandName: "wake",
+                                                    abstract: "Prevent macOS display sleep with configurable, daemon-backed wake sessions.",
+                                                    version: appVersion,
+                                                    subcommands: availableSubcommands,
+                                                    defaultSubcommand: nil)
+
+    func run() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["NO_TTY"] == nil,
+              isatty(STDIN_FILENO) == 1,
+              isatty(STDOUT_FILENO) == 1 else {
+            throw CleanExit.helpRequest(self)
         }
+        try WakeInteractiveUI().run()
     }
 }

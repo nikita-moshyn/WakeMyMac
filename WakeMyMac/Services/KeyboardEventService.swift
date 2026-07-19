@@ -24,11 +24,34 @@ final class KeyboardEventService {
     private var watcher: IdleWatcher?
     
     private init() {}
+
+#if DEBUG
+    static func makeForTesting() -> KeyboardEventService {
+        KeyboardEventService()
+    }
+#endif
     
     // MARK: - Public Methods
-    
-    func startActivity() {
-        watcher = IdleWatcher(timeout: 240, timeoutHandler: generateKeyboardEvent)
+
+    func startActivity() -> Bool {
+        startActivity(timeout: 240)
+    }
+
+#if DEBUG
+    func startTestActivity(timeout: TimeInterval, eventHandler: @escaping (Bool) -> Void) -> Bool {
+        startActivity(timeout: timeout, eventHandler: eventHandler)
+    }
+#endif
+
+    private func startActivity(timeout: TimeInterval, eventHandler: ((Bool) -> Void)? = nil) -> Bool {
+        guard let watcher = IdleWatcher(timeout: timeout, timeoutHandler: { [weak self] in
+            let didGenerateEvent = self?.generateKeyboardEvent() ?? false
+            eventHandler?(didGenerateEvent)
+        }) else {
+            return false
+        }
+        self.watcher = watcher
+        return true
     }
     
     func stopActivity() {
@@ -38,14 +61,13 @@ final class KeyboardEventService {
     
     // MARK: - Private Methods
     /// Generates a keyboard event
-    private func generateKeyboardEvent() {
+    private func generateKeyboardEvent() -> Bool {
         let keyCode: CGKeyCode = 60 // Left Shift
         let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)
         let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
-        guard let keyUp, let keyDown else { return
-        }
+        guard let keyUp, let keyDown else { return false }
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
-//        dprint("Left Shift triggered.")
+        return true
     }
 }

@@ -28,22 +28,17 @@ final class WakeDaemon: WakeSessionManager, ParsableCommand {
     var duration: TimeInterval?
     
     private var assertionID: IOPMAssertionID = 0
-    
-    
+
     func run() throws {
-        guard savedSessionExists() else {
+        guard start else {
+            cprint("Wake daemon was started without the required '--start' option.", .error)
             send(.failure)
-            return
+            throw ExitCode.failure
         }
-        
-        if start {
-            dprint("Demon starting")
-            startWakeSession(duration: duration)
-        }
+        try startWakeSession(duration: duration)
     }
-    
-    private func startWakeSession(duration: TimeInterval?) {
-        
+
+    private func startWakeSession(duration: TimeInterval?) throws {
         let reason = Constants.assertionName.value as CFString
         let result = IOPMAssertionCreateWithName(kIOPMAssertionTypeNoDisplaySleep as CFString,
                                                  IOPMAssertionLevel(kIOPMAssertionLevelOn),
@@ -51,34 +46,36 @@ final class WakeDaemon: WakeSessionManager, ParsableCommand {
                                                  &assertionID)
         
         guard result == kIOReturnSuccess else {
-            print("Failed to create assertion: \(result)")
+            cprint("Failed to create the display-sleep assertion (IOKit error \(result)).", .error)
             send(.failure)
-            return
+            throw ExitCode.failure
         }
-        
-        guard saveAssertion(id: assertionID) else { send(.failure); return }
 
-        // Set termination duration if persist
+        let session = WakeSession(daemonID: getpid(), assertionID: assertionID, duration: duration)
+        do {
+            try saveSession(session)
+        } catch {
+            IOPMAssertionRelease(assertionID)
+            cprint("Failed to save wake session state: \(error.localizedDescription)", .error)
+            send(.failure)
+            throw ExitCode.failure
+        }
+
         if let duration = duration {
             DispatchQueue.global().asyncAfter(deadline: .now() + duration) { [weak self] in
                 self?.stopWakeSession()
             }
         }
         
-        // Send signal to parent process that Wake Deamon started successfuly
+        // Send signal to parent process that Wake Daemon started successfully
         send(.success)
-        
-        
         // Hold the process
         RunLoop.main.run()
     }
-    
+
     private func stopWakeSession() {
-        releaseSession()
+        IOPMAssertionRelease(assertionID)
+        try? releaseSession()
         killSelf()
-    }
-    
-    private func startAlwaysActive() {
-        
     }
 }

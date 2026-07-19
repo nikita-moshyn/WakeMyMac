@@ -16,27 +16,19 @@ import Foundation
 import OSLog
 
 class WakeSessionManager {
-    
-    private lazy var sessionFilePath = getSessionFilePath()
+
+    private let storage: any SessionStorage
     private var session: WakeSession?
-    
+    private var restorationError: Error?
+
     init() {
-        guard savedSessionExists() else {
-            logger.info("Saved session is not detected.")
-            
-            dprint("Saved session is not detected")
-            return
-        }
-        session = retrieveSavedSession()
+        self.storage = AppServices.sessionStorage
+        restoreSession()
     }
-    
-    
-    private func getSessionFilePath() -> URL {
-        if #available(macOS 13.8, *) {
-            return FileManager.default.homeDirectoryForCurrentUser.appending(path: Constants.wakeSession.value)
-        } else {
-            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(Constants.wakeSession.value)
-        }
+
+    init(storage: any SessionStorage) {
+        self.storage = storage
+        restoreSession()
     }
     
     func getCurrentSession() -> WakeSession? {
@@ -44,86 +36,64 @@ class WakeSessionManager {
     }
     
     func refreshSession() {
-        self.session = retrieveSavedSession()
+        restoreSession()
     }
-    
-    private func retrieveSavedSession() -> WakeSession? {
+
+    func requireReadableSessionState() throws {
+        guard let restorationError else { return }
+        throw WakeSessionManagerError.couldNotReadState(restorationError)
+    }
+
+    private func restoreSession() {
         do {
-            let data = try Data(contentsOf: sessionFilePath)
-            let decoder = JSONDecoder()
-            let session = try decoder.decode(WakeSession.self, from: data)
-            return session
+            session = try storage.loadWakeSession()
+            restorationError = nil
         } catch {
+            session = nil
+            restorationError = error
             logger.error("Failed to load session: \(error.localizedDescription)")
         }
-        return nil
+
+        if session == nil {
+            logger.info("Saved session is not detected.")
+        }
     }
     
-    func sessionIsActive() -> Bool {
-        let status = session != nil
-        logger.info("Session status: \(status)")
-        return status
-    }
-    
-    func savedSessionExists() -> Bool {
-        let status = FileManager.default.fileExists(atPath: getSessionFilePath().path)
-        logger.info("Saved session exist: \(status)")
-        return status
+    func sessionIsActive() throws -> Bool {
+        try requireReadableSessionState()
+        guard let daemonID = session?.daemonID else { return false }
+        return processIsRunning(daemonID)
     }
     
     func saveSession(_ session: WakeSession) throws {
         logger.info("Attempting to save new session")
-        
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(session)
-            deleteFileIfExists()
-            try data.write(to: sessionFilePath)
-        } catch {
-            logger.error("Failed to save session: \(error.localizedDescription)")
-            throw(error)
-        }
-        
+
+        try storage.saveWakeSession(session)
         self.session = session
     }
     
-    func saveSession(_ daemonID: Int32, duration: TimeInterval?) {
-        let session = WakeSession(deamonID: daemonID, duration: duration)
-        try? saveSession(session)
-    }
-    
-    private func deleteFileIfExists() {
-        guard savedSessionExists() else {
-            logger.info("Saved session is not exist.")
-            return
-        }
-        
+    func releaseSession() throws {
         do {
-            try FileManager.default.removeItem(at: sessionFilePath)
-            logger.info("Session file was successfyly removed")
+            try storage.deleteWakeSession()
+            logger.info("Session file was successfully removed")
         } catch {
             logger.error("Failed to delete session file: \(error.localizedDescription)")
+            throw WakeSessionManagerError.couldNotUpdateState(error)
         }
-    }
-    
-    func releaseSession() {
-        deleteFileIfExists()
         session = nil
     }
-    
-    /// Saves IOPMAssertionID to existing saved session
-    /// Returns result as a bool
-    @discardableResult
-    func saveAssertion(id: IOPMAssertionID) -> Bool {
-        guard var session else { return false }
-        
-        do {
-            session.assertionID = id
-            releaseSession()
-            try saveSession(session)
-            return true
-        } catch {
-            return false
+}
+
+enum WakeSessionManagerError: LocalizedError {
+    case couldNotReadState(Error)
+    case couldNotUpdateState(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .couldNotReadState(let error):
+            "Failed to read saved session state: \(error.localizedDescription)"
+        case .couldNotUpdateState(let error):
+            "Failed to update saved session state: \(error.localizedDescription)"
         }
     }
 }

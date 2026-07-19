@@ -16,56 +16,80 @@ import Foundation
 import ArgumentParser
 
 struct AlwaysActiveStart: ParsableCommand {
-    
-    static var configuration = CommandConfiguration(commandName: "start", abstract: "Start an always active session.")
-    
-    @Flag(name: .shortAndLong, help: "Force start if another session is active.")
+
+    static var configuration = CommandConfiguration(commandName: "start", abstract: "Start an Always Active session.")
+
+    private var manager = AlwaysActiveManager.current
+
+    @Argument(help: "Activity mode: 'keyboard'/'k' or 'mouse'/'m'.")
+    var mode: AlwaysActiveMode = .keyboard
+
+    @Flag(name: .shortAndLong, help: "Force restart if already active.")
     var force: Bool = false
     
-    @Flag(name: .shortAndLong, help: "Enable debug mode for additional logging")
+    @Flag(name: .shortAndLong, help: "Enable debug output.")
     var debug: Bool = false
-    
+
+    private enum CodingKeys: String, CodingKey {
+        case mode
+        case force
+        case debug
+    }
+
+    init() {}
+
+    init(storage: any SessionStorage) {
+        manager = AlwaysActiveManager(storage: storage)
+    }
+
     func run() throws {
-        if !A11yService.isAccessibilityEnabled() {
-            cprint("Always Active requires accessibility access to function correctly", .warning)
-            if askForConfirmation("Do you want to open Accessibility settings?") {
-                A11yService.openAccessibilitySettings()
-            }
-        } else {
-            startAlwaysActiveDeamon()
+        guard A11yService.isAccessibilityEnabled() else {
+            try handleMissingAccessibilityPermission()
+            return
         }
-    }
-    
-    private func startAlwaysActiveDeamon() {
-        setupSignalHandler()
-        
-        let daemon = DmnService.createBackgroundDaemon()
-        daemon.arguments = ["alwaysActive-wake-daemon", "--start"]
-        
+
         do {
-            try daemon.run()
-            
-            dprint("Daemon started with PID: \(daemon.processIdentifier)", debug)
-        
-            let session = AlwaysActiveSession(daemonID: daemon.processIdentifier)
-            StorService.saveAlwaysActiveSession(session)
-            
-            RunLoop.main.run()
+            let hasActiveSession = try manager.status() != nil
+            var shouldReplaceActiveSession = force
+
+            if hasActiveSession, !force {
+                cprint("An Always Active session is already active.", .warning)
+                guard askForConfirmation("Do you want to overwrite the current Always Active session?") else {
+                    cprint("Operation canceled. Existing Always Active session remains active.")
+                    return
+                }
+                shouldReplaceActiveSession = true
+            }
+
+            try manager.start(
+                mode: mode,
+                replacingActiveSession: shouldReplaceActiveSession,
+                force: force,
+                debug: debug,
+                onSuccess: {
+                    cprint("Always Active session started successfully.", .success)
+                },
+                onFailure: {}
+            )
+        } catch let exitCode as ExitCode {
+            throw exitCode
         } catch {
-            cprint("Failed to start Always Active session: \(error.localizedDescription)", .error)
+            cprint(error.localizedDescription, .error)
+            throw ExitCode.failure
         }
     }
-    
-    private func setupSignalHandler() {
-        SigService.setupSignalHandler {
-            cprint("Always active session started successfully!", .success)
-            killSelf()
-        } _: {
-            cprint("Failed to start Always Active session.", .error)
-            dprint("Attempting to terminate daemon and clean session", debug)
-            
-            StorService.deleteAlwaysActiveSession()
-            killSelf()
+
+    private func handleMissingAccessibilityPermission() throws {
+        cprint("Always Active requires Accessibility access for Terminal.", .warning)
+        guard askForConfirmation("Do you want to open Accessibility settings for Terminal?") else {
+            cprint("Operation canceled. Always Active session was not started.")
+            return
         }
+
+        guard A11yService.openAccessibilitySettings() else {
+            cprint("Failed to open Accessibility settings.", .error)
+            throw ExitCode.failure
+        }
+        cprint("Enable Terminal under Privacy & Security > Accessibility, then run 'wake aa start' again.")
     }
 }

@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import Foundation
-import OSLog
-
-// MARK: - Global Logger
-/// A global logger for the application.
-/// Subsystem and category are used to organise log entries.
-let logger = Logger(subsystem: Constants.loggerSubsystem.value, category: Constants.loggerCategory.value)
+enum AppServices {
+    static let sessionStorage: any SessionStorage = FileSessionStorage.shared
+}

@@ -17,32 +17,41 @@ import ArgumentParser
 import Cocoa
 
 final class AlwaysActiveDaemon: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "alwaysActive-wake-daemon", abstract: "Daemon process to manage macOS sleep prevention session", shouldDisplay: false)
-    
+    static let configuration = CommandConfiguration(commandName: "always-active-daemon", abstract: "Daemon process for the Always Active session.", shouldDisplay: false, aliases: ["alwaysActive-wake-daemon"])
+
     @Flag(help: "Start the always active session.")
     var start: Bool = false
-    
+
+    @Option(help: "Activity mode to use for the always active session.")
+    var mode: AlwaysActiveMode = .keyboard
+
+    required init() {}
+
     func run() throws {
-        guard preCheck() else { send(.failure); return }
-        
-        dprint("Always Active session is about to start")
-        startAlwaysActiveSession()
-    }
-    
-    func preCheck() -> Bool {
-        A11yService.isAccessibilityEnabled() &&
-        start
-    }
-    
-    private func startAlwaysActiveSession() {
-        KEService.startActivity()
+        guard start else {
+            cprint("Always Active daemon was started without the required '--start' option.", .error)
+            send(.failure)
+            throw ExitCode.failure
+        }
+        guard A11yService.isAccessibilityEnabled() else {
+            cprint("Terminal does not have Accessibility access required by the Always Active daemon.", .error)
+            send(.failure)
+            throw ExitCode.failure
+        }
+
+        let didStartActivity = switch mode {
+        case .keyboard:
+            KEService.startActivity()
+        case .mouse:
+            MEService.startActivity()
+        }
+        guard didStartActivity else {
+            cprint("Failed to create the activity event tap. Verify Terminal Accessibility access.", .error)
+            send(.failure)
+            throw ExitCode.failure
+        }
+
         send(.success)
         RunLoop.main.run()
-    }
-    
-    private func stopAlwaysActiveSession() {
-        KEService.stopActivity()
-        StorService.deleteAlwaysActiveSession()
-        killSelf()
     }
 }

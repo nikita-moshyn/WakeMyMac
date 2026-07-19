@@ -22,27 +22,48 @@ final class SignalService {
     
     private init() {}
     
-    func setupSignalHandler(_ success: (() -> Void)? = nil, _ failure: (() -> Void)? = nil) {
-        // Create signals
+    func waitForDaemonStartup(starting daemon: () throws -> Void) throws -> DaemonStartupResult {
+        let state = DaemonStartupSignalState()
         let successSignal = DispatchSource.makeSignalSource(signal: Signal.success.rawValue, queue: .main)
         let failureSignal = DispatchSource.makeSignalSource(signal: Signal.failure.rawValue, queue: .main)
-        
-        // Ignore detault system behaviuor for signals
+
         signal(Signal.success.rawValue, SIG_IGN)
         signal(Signal.failure.rawValue, SIG_IGN)
-        
+
         successSignal.setEventHandler {
-            success?()
-            successSignal.cancel()
+            state.result = .success
         }
-        
+
         failureSignal.setEventHandler {
-            failure?()
-            failureSignal.cancel()
-            
+            state.result = .failure
         }
 
         successSignal.resume()
         failureSignal.resume()
+
+        do {
+            try daemon()
+        } catch {
+            successSignal.cancel()
+            failureSignal.cancel()
+            throw error
+        }
+
+        while state.result == nil {
+            _ = RunLoop.main.run(mode: .default, before: .distantFuture)
+        }
+
+        successSignal.cancel()
+        failureSignal.cancel()
+        return state.result ?? .failure
     }
+}
+
+enum DaemonStartupResult {
+    case success
+    case failure
+}
+
+private final class DaemonStartupSignalState {
+    var result: DaemonStartupResult?
 }

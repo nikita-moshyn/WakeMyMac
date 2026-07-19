@@ -18,31 +18,32 @@ import ArgumentParser
 struct Start: ParsableCommand {
     static var configuration = CommandConfiguration(abstract: "Start a wake session.")
     
-    @Argument(help: "Duration of the session (e.g., '1h', '120min'). Leave empty for indefinite.")
+    @Argument(help: "Wake session duration (e.g., '30m', '1h', or '1h30m'). Omit for an indefinite session.")
     var duration: String?
     
-    @Flag(name: .shortAndLong, help: "Force start even if another session is active.")
+    @Flag(name: .shortAndLong, help: "Terminate and replace an active wake session without confirmation.")
     var force: Bool = false
     
     func run() throws {
         guard let duration else {
-            WakeManager.current.start(force: force)
+            try startWakeSession()
             return
         }
-        
-        guard let interval = parseDuration(duration) else { throw ValidationError("Invalid duration format. Use '1h', '120min', or similar.") }
-        WakeManager.current.start(duration: interval, force: force)
-    }
-    
-    private func parseDuration(_ input: String) -> TimeInterval? {
-        let regex = try! NSRegularExpression(pattern: #"(?:(\d+)h)?(?:(\d+)m)?"#)
-        guard let match = regex.firstMatch(in: input, range: NSRange(input.startIndex..., in: input)) else {
-            return nil
+
+        guard parseDuration(duration) != nil else {
+            throw ValidationError("Invalid duration '\(duration)'. Use a value such as '30m', '1h', or '1h30m'.")
         }
+        try startWakeSession()
+    }
 
-        let hours = Range(match.range(at: 1), in: input).flatMap { Int(input[$0]) } ?? 0
-        let minutes = Range(match.range(at: 2), in: input).flatMap { Int(input[$0]) } ?? 0
-
-        return TimeInterval(hours * 3600 + minutes * 60)
+    private func startWakeSession() throws {
+        do {
+            try WakeManager.current.start(duration: duration.flatMap(parseDuration), force: force)
+        } catch let exitCode as ExitCode {
+            throw exitCode
+        } catch {
+            cprint(error.localizedDescription, .error)
+            throw ExitCode.failure
+        }
     }
 }

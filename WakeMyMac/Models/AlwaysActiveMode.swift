@@ -12,23 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import Foundation
-import IOKit.pwr_mgt
+import ArgumentParser
 
-struct WakeSession: Codable {
-    // Background process ID (daemon)
-    var daemonID: Int32
-    // IOPMAssertion ID (process to keep mac active)
-    var assertionID: IOPMAssertionID
-    
-    let startTime: Date
-    var duration: TimeInterval?
-    var endTime: Date? { duration.map { startTime.addingTimeInterval($0) } }
-    
-    init(daemonID: Int32 = 0, assertionID: IOPMAssertionID = 0, duration: TimeInterval? = nil) {
-        self.daemonID = daemonID
-        self.assertionID = assertionID
-        self.startTime = Date()
-        self.duration = duration
+enum AlwaysActiveMode: String, Codable, CaseIterable, ExpressibleByArgument {
+    case keyboard
+    case mouse
+
+    init?(argument: String) {
+        switch argument.lowercased() {
+        case "k", Self.keyboard.rawValue:
+            self = .keyboard
+        case "m", Self.mouse.rawValue:
+            self = .mouse
+        default:
+            return nil
+        }
+    }
+
+    static var allValueStrings: [String] {
+        ["keyboard", "k", "mouse", "m"]
     }
 }
