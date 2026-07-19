@@ -16,18 +16,18 @@ import Foundation
 import ArgumentParser
 
 struct AlwaysActiveCommand: ParsableCommand {
-    static var configuration = CommandConfiguration(commandName: "alwaysActive",
-                                                    abstract: "Manages an always-active session that simulates key presses to prevent system inactivity.",
+    static var configuration = CommandConfiguration(commandName: "always-active",
+                                                    abstract: "Manage the Always Active daemon and its session state.",
                                                     discussion: """
-                                                    The `alwaysActive` command initiates a session that ensures your system remains active. \
-                                                    If no user activity is detected for 4 minutes, the session will automatically simulate a key press \
-                                                    to prevent the system from sleeping or locking the screen.
+                                                    Always Active simulates a Shift key press after four minutes without keyboard or mouse activity. \
+                                                    Terminal must be enabled under Privacy & Security > Accessibility.
                                                     """,
                                                     subcommands: [AlwaysActiveStart.self,
                                                                   AlwaysActiveStop.self,
                                                                   AlwaysActiveStatus.self],
-                                                    aliases: ["aa"])
+                                                    aliases: ["aa", "alwaysActive"])
     
-    func run() throws {}
-    
+    func run() throws {
+        throw CleanExit.helpRequest(self)
+    }
 }

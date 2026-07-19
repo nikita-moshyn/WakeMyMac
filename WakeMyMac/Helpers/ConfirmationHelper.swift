@@ -14,42 +14,30 @@
 
 import Foundation
 
-// MARK: - Main Functionality
 /// Prompts the user for a yes/no confirmation.
-///
-/// This function ensures:
-/// - The `message` is non-empty and reasonable in length.
-/// - The user's input is valid (`y`, `yes`, `n`, `no`).
-///
-/// Logs are generated at each step, including invalid inputs and confirmation outcomes.
-///
 /// - Parameter message: The message to display to the user.
 /// - Returns: `true` if the user confirms, `false` otherwise.
-func askForConfirmation(_ message: String) -> Bool {
-    // Ensure the message is not empty; otherwise, log and return false
+func askForConfirmation(_ message: String, readInput: () -> String? = { readLine() }, writeOutput: (String, String) -> Void = { writeConsole($0, terminator: $1) }) -> Bool {
     guard !message.isEmpty else {
         logger.critical("Failed to ask for confirmation. Message is empty")
         return false
     }
-    
-    // Ensure the message length is reasonable for console readability
-    guard message.count < 100 else {
-        logger.critical("Message is too long and might not be readable. Preview: \(message.prefix(100))...")
-        return false
-    }
-    
-    // Prompt the user
-    print("\(message) (y/n): ", terminator: "")
-    
+
     while true {
-        // Ensure user input is trimmed and formatted properly
-        guard let input = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !input.isEmpty else {
-            logger.warning("Empty input detected. Prompting user again.")
-            invalidInputPrint()
-            continue
+        writeOutput("\(message) [y/N] ", "")
+
+        guard let rawInput = readInput() else {
+            logger.info("Confirmation input ended before the user responded.")
+            writeOutput("", "\n")
+            return false
         }
-        
-        // Validate input and return appropriate result
+
+        let input = rawInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !input.isEmpty else {
+            logger.info("User accepted the default negative confirmation response.")
+            return false
+        }
+
         switch input {
         case "y", "yes":
             logger.info("User confirmed action with input \(input).")
@@ -59,15 +47,7 @@ func askForConfirmation(_ message: String) -> Bool {
             return false
         default:
             logger.warning("Invalid input detected: \(input). Prompting user again.")
-            invalidInputPrint()
+            writeOutput("Please enter 'y' or 'n'.", "\n")
         }
     }
-}
-
-// MARK: - Helper Function
-/// Prints a standard message for invalid input.
-///
-/// This function is used whenever the user enters something other than `y`, `yes`, `n`, or `no`.
-fileprivate func invalidInputPrint() {
-    print("Invalid input. Please enter 'y' or 'n'.")
 }

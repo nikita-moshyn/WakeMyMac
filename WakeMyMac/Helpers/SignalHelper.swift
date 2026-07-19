@@ -33,8 +33,12 @@ func send(_ signal: Signal, _ processID: pid_t = getppid()) -> SignalResult {
     SignalResult(kill(processID, signal.rawValue))
 }
 
-func killSelf() {
-    exit(0)
+func processIsRunning(_ processID: pid_t) -> Bool {
+    kill(processID, 0) == 0
+}
+
+func killSelf(exitCode: Int32 = 0) {
+    exit(exitCode)
 }
 
 enum SignalResult {

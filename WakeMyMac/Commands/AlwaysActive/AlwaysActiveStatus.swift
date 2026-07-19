@@ -16,11 +16,11 @@ import Foundation
 import ArgumentParser
 
 struct AlwaysActiveStatus: ParsableCommand {
-    static var configuration = CommandConfiguration(commandName: "status", abstract: "Check the status of the Always Active session")
+    static var configuration = CommandConfiguration(commandName: "status", abstract: "Check the status of the Always Active session.")
 
     private var storage: any SessionStorage = AppServices.sessionStorage
 
-    @Flag(name: .shortAndLong, help: "Enable debug mode for additional details")
+    @Flag(name: .shortAndLong, help: "Print the active daemon PID.")
     var debug: Bool = false
 
     private enum CodingKeys: String, CodingKey {
@@ -34,20 +34,23 @@ struct AlwaysActiveStatus: ParsableCommand {
     }
 
     func run() throws {
-        if let session = try storage.loadAlwaysActiveSession(), let status = SessionStatus(session: session) {
-            cprint("Always Active Session started at: \(status.startDate.formatted())")
-            
-            if status.remainingTime != nil {
-                cprint(status.getTimeRemainingFormatted(), .green)
-            } else {
-                cprint("Session is running indefinitely", .green)
+        do {
+            guard let session = try storage.loadAlwaysActiveSession() else {
+                cprint("Always Active is inactive.")
+                return
             }
-            
-            if debug {
-                dprint("Daemon id: \(session.daemonID)", debug)
+
+            guard processIsRunning(session.daemonID) else {
+                try storage.deleteAlwaysActiveSession()
+                cprint("Always Active is inactive. Stale session state was removed.")
+                return
             }
-        } else {
-            cprint("No active daemon found", .yellow)
+
+            cprint("Always Active session is active.", .success)
+            dprint("Daemon ID: \(session.daemonID)", debug)
+        } catch {
+            cprint("Failed to check Always Active status: \(error.localizedDescription)", .error)
+            throw ExitCode.failure
         }
     }
 }

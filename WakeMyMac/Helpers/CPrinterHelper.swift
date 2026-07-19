@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import Foundation
+import Darwin
 
 enum ConsoleColor: String {
     case red = "\u{001B}[31m"
@@ -52,29 +53,62 @@ enum OutputState {
     }
 }
 
-// Color print
-func cprint(_ message: String, _ color: ConsoleColor = .reset) {
-    print("\(color.rawValue)\(message)\(ConsoleColor.reset.rawValue)")
+enum OutputDestination {
+    case standardOutput
+    case standardError
+
+    var fileHandle: FileHandle {
+        switch self {
+        case .standardOutput:
+            .standardOutput
+        case .standardError:
+            .standardError
+        }
+    }
+
+    var fileDescriptor: Int32 {
+        switch self {
+        case .standardOutput:
+            STDOUT_FILENO
+        case .standardError:
+            STDERR_FILENO
+        }
+    }
+}
+
+func writeConsole(_ message: String, terminator: String = "\n", to destination: OutputDestination = .standardOutput) {
+    guard let data = "\(message)\(terminator)".data(using: .utf8) else { return }
+    destination.fileHandle.write(data)
+}
+
+func cprint(_ message: String, _ color: ConsoleColor = .reset, to destination: OutputDestination = .standardOutput) {
+    let coloredMessage: String
+    if shouldUseColor(for: destination), color != .reset {
+        coloredMessage = "\(color.rawValue)\(message)\(ConsoleColor.reset.rawValue)"
+    } else {
+        coloredMessage = message
+    }
+    writeConsole(coloredMessage, to: destination)
 }
 
 func cprint(_ message: String, _ state: OutputState) {
     var prefix = state.prefix
-    
-    // If == success, we don't want to add (:)
+
     if state != .success {
         prefix += ": "
     }
-    
-    cprint("\(prefix)\(message)", state.color)
+
+    let destination: OutputDestination = state == .error || state == .debug ? .standardError : .standardOutput
+    cprint("\(prefix)\(message)", state.color, to: destination)
 }
 
-// Debug print
-func dprint(_ message: String,_ debugFlag: Bool = false) {
-    if debugFlag {
-        cprint(message, .debug)
-        return
-    }
-#if DEBUG
+func dprint(_ message: String, _ debugFlag: Bool = false) {
+    guard debugFlag else { return }
     cprint(message, .debug)
-#endif
+}
+
+private func shouldUseColor(for destination: OutputDestination) -> Bool {
+    let environment = ProcessInfo.processInfo.environment
+    guard environment["NO_COLOR"] == nil, environment["TERM"] != "dumb" else { return false }
+    return isatty(destination.fileDescriptor) == 1
 }

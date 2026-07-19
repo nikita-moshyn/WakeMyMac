@@ -17,14 +17,14 @@ import ArgumentParser
 
 struct AlwaysActiveStart: ParsableCommand {
 
-    static var configuration = CommandConfiguration(commandName: "start", abstract: "Start an always active session.")
+    static var configuration = CommandConfiguration(commandName: "start", abstract: "Start an Always Active session.")
 
     private var storage: any SessionStorage = AppServices.sessionStorage
 
-    @Flag(name: .shortAndLong, help: "Force start if another session is active.")
+    @Flag(name: .shortAndLong, help: "Force restart if already active.")
     var force: Bool = false
     
-    @Flag(name: .shortAndLong, help: "Enable debug mode for additional logging")
+    @Flag(name: .shortAndLong, help: "Enable debug output.")
     var debug: Bool = false
 
     private enum CodingKeys: String, CodingKey {
@@ -39,50 +39,106 @@ struct AlwaysActiveStart: ParsableCommand {
     }
 
     func run() throws {
-        if !A11yService.isAccessibilityEnabled() {
-            cprint("Always Active requires accessibility access to function correctly", .warning)
-            if askForConfirmation("Do you want to open Accessibility settings?") {
-                A11yService.openAccessibilitySettings()
-            }
-        } else {
-            startAlwaysActiveDeamon()
+        guard A11yService.isAccessibilityEnabled() else {
+            try handleMissingAccessibilityPermission()
+            return
+        }
+
+        do {
+            guard try prepareForStart() else { return }
+            try startAlwaysActiveDaemon()
+        } catch let exitCode as ExitCode {
+            throw exitCode
+        } catch {
+            cprint(error.localizedDescription, .error)
+            throw ExitCode.failure
         }
     }
-    
-    private func startAlwaysActiveDeamon() {
+
+    private func handleMissingAccessibilityPermission() throws {
+        cprint("Always Active requires Accessibility access for Terminal.", .warning)
+        guard askForConfirmation("Do you want to open Accessibility settings for Terminal?") else {
+            cprint("Operation canceled. Always Active session was not started.")
+            return
+        }
+
+        guard A11yService.openAccessibilitySettings() else {
+            cprint("Failed to open Accessibility settings.", .error)
+            throw ExitCode.failure
+        }
+        cprint("Enable Terminal under Privacy & Security > Accessibility, then run 'wake aa start' again.")
+    }
+
+    private func prepareForStart() throws -> Bool {
+        guard let session = try storage.loadAlwaysActiveSession() else { return true }
+        guard processIsRunning(session.daemonID) else {
+            try storage.deleteAlwaysActiveSession()
+            return true
+        }
+
+        if !force {
+            cprint("An Always Active session is already active.", .warning)
+            guard askForConfirmation("Do you want to overwrite the current Always Active session?") else {
+                cprint("Operation canceled. Existing Always Active session remains active.")
+                return false
+            }
+        }
+
+        let signal: Signal = force ? .kill : .terminate
+        guard send(signal, session.daemonID) == .success else {
+            throw AlwaysActiveCommandError.couldNotStopExistingSession
+        }
+        try storage.deleteAlwaysActiveSession()
+        return true
+    }
+
+    private func startAlwaysActiveDaemon() throws {
         setupSignalHandler()
-        
+
         let daemon = DmnService.createBackgroundDaemon()
-        daemon.arguments = ["alwaysActive-wake-daemon", "--start"]
-        
+        daemon.arguments = ["always-active-daemon", "--start"]
+
         do {
             try daemon.run()
-            
-            dprint("Daemon started with PID: \(daemon.processIdentifier)", debug)
-        
+            dprint("Started daemon (PID \(daemon.processIdentifier)).", debug)
+
             let session = AlwaysActiveSession(daemonID: daemon.processIdentifier)
             try storage.saveAlwaysActiveSession(session)
-            
+
             RunLoop.main.run()
         } catch {
-            cprint("Failed to start Always Active session: \(error.localizedDescription)", .error)
+            if daemon.isRunning {
+                daemon.terminate()
+            }
+            try? storage.deleteAlwaysActiveSession()
+            throw error
         }
     }
-    
+
     private func setupSignalHandler() {
         SigService.setupSignalHandler {
-            cprint("Always active session started successfully!", .success)
+            cprint("Always Active session started successfully.", .success)
             killSelf()
         } _: {
-            cprint("Failed to start Always Active session.", .error)
-            dprint("Attempting to terminate daemon and clean session", debug)
+            dprint("Removing partial Always Active session state after daemon startup failure.", debug)
 
             do {
                 try storage.deleteAlwaysActiveSession()
             } catch {
-                dprint("Failed to clean session storage: \(error.localizedDescription)", debug)
+                dprint("Failed to clean session state: \(error.localizedDescription)", debug)
             }
-            killSelf()
+            killSelf(exitCode: 1)
+        }
+    }
+}
+
+private enum AlwaysActiveCommandError: LocalizedError {
+    case couldNotStopExistingSession
+
+    var errorDescription: String? {
+        switch self {
+        case .couldNotStopExistingSession:
+            "Failed to terminate the existing Always Active daemon."
         }
     }
 }

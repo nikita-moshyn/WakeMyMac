@@ -16,11 +16,11 @@ import Foundation
 import ArgumentParser
 
 struct AlwaysActiveStop: ParsableCommand {
-    static var configuration = CommandConfiguration(commandName: "stop", abstract: "Stop an Always Active session")
+    static var configuration = CommandConfiguration(commandName: "stop", abstract: "Stop the Always Active session.")
 
     private var storage: any SessionStorage = AppServices.sessionStorage
 
-    @Flag(name: .shortAndLong, help: "Forcefully terminate the daemon if it cannot be stopped gracefully")
+    @Flag(name: .shortAndLong, help: "Send SIGKILL instead of SIGTERM to the Always Active daemon.")
     var force: Bool = false
 
     private enum CodingKeys: String, CodingKey {
@@ -34,38 +34,34 @@ struct AlwaysActiveStop: ParsableCommand {
     }
 
     func run() throws {
-        guard let session = try storage.loadAlwaysActiveSession() else {
-            cprint("No Always Active session is currently running", .warning)
-            return
+        do {
+            guard let session = try storage.loadAlwaysActiveSession() else {
+                cprint("No active Always Active daemon found.")
+                return
+            }
+
+            guard processIsRunning(session.daemonID) else {
+                try storage.deleteAlwaysActiveSession()
+                cprint("No active Always Active daemon found. Stale session state was removed.")
+                return
+            }
+
+            let signal: Signal = force ? .kill : .terminate
+            guard send(signal, session.daemonID) == .success else {
+                let message = force
+                    ? "Failed to forcefully terminate the Always Active daemon."
+                    : "Failed to gracefully terminate the Always Active daemon. Use 'wake aa stop --force' to send SIGKILL."
+                cprint(message, .error)
+                throw ExitCode.failure
+            }
+
+            try storage.deleteAlwaysActiveSession()
+            cprint("Always Active session successfully stopped.", .success)
+        } catch let exitCode as ExitCode {
+            throw exitCode
+        } catch {
+            cprint("Failed to stop Always Active session: \(error.localizedDescription)", .error)
+            throw ExitCode.failure
         }
-        printDebugDaemonStatus(session)
-        
-        let result: SignalResult
-        if force {
-            result = send(.kill, session.daemonID)
-        } else {
-            result = send(.terminate, session.daemonID)
-        }
-        
-        guard result == .success else {
-            cprint("Failed to stop the daemon. Use '--force' to terminate it", .error)
-            return
-        }
-        try storage.deleteAlwaysActiveSession()
-        cprint("Always Active session has been successfully stopped", .success)
-    }
-    
-    private func printDebugDaemonStatus(_ session: AlwaysActiveSession) {
-        let daemonIsActive = daemonIsActive(session: session)
-        
-        if daemonIsActive {
-            dprint("Found active daemon with id: \(session.daemonID)")
-        } else {
-            dprint("No active daemon found")
-        }
-    }
-    
-    private func daemonIsActive(session: AlwaysActiveSession) -> Bool {
-        kill(session.daemonID, 0) == 0
     }
 }

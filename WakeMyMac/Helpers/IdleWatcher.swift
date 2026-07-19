@@ -26,7 +26,7 @@ final class IdleWatcher {
     private let timeoutHandler: (() -> Void)?
     
     
-    init(timeout: TimeInterval, timeoutHandler: (() -> Void)? = nil) {
+    init?(timeout: TimeInterval, timeoutHandler: (() -> Void)? = nil) {
         self.timeout = timeout
         self.timeoutHandler = timeoutHandler
         
@@ -49,8 +49,7 @@ final class IdleWatcher {
             callback: IdleWatcher.eventTapCallback,
             userInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         ) else {
-            dprint("Tap event is not created. Check Accessibility access.")
-            exit(1) // Exit the application if the event tap cannot be created
+            return nil
         }
         
         self.eventTap = tap

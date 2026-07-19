@@ -27,8 +27,12 @@ final class KeyboardEventService {
     
     // MARK: - Public Methods
     
-    func startActivity() {
-        watcher = IdleWatcher(timeout: 240, timeoutHandler: generateKeyboardEvent)
+    func startActivity() -> Bool {
+        guard let watcher = IdleWatcher(timeout: 240, timeoutHandler: generateKeyboardEvent) else {
+            return false
+        }
+        self.watcher = watcher
+        return true
     }
     
     func stopActivity() {
@@ -42,10 +46,8 @@ final class KeyboardEventService {
         let keyCode: CGKeyCode = 60 // Left Shift
         let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)
         let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
-        guard let keyUp, let keyDown else { return
-        }
+        guard let keyUp, let keyDown else { return }
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
-//        dprint("Left Shift triggered.")
     }
 }

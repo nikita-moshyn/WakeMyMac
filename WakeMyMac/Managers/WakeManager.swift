@@ -14,7 +14,6 @@
 
 import Foundation
 import ArgumentParser
-import IOKit.pwr_mgt
 
 final class WakeManager: WakeSessionManager {
     
@@ -24,124 +23,116 @@ final class WakeManager: WakeSessionManager {
         super.init(storage: storage)
     }
     
-    /// Start function will override any existing
-    func start(duration: TimeInterval? = nil, force: Bool = false) {
-        // Stop any active sestion
-        if sessionIsActive(), !force {
+    func start(duration: TimeInterval? = nil, force: Bool = false) throws {
+        let active = try sessionIsActive()
+        if active, !force {
             logger.info("Attempting to start a new session while another session is active")
-            cprint("A wake session is already active", .warning)
-            if askForConfirmation("Do you want to overwrite the current session?") {
-                logger.info("User chose to overwrite the active session.")
-                dprint("Overwriting the current session")
-                stop()
-            } else {
+            cprint("A wake session is already active.", .warning)
+            guard askForConfirmation("Do you want to overwrite the current session?") else {
                 logger.info("User chose not to overwrite the active session.")
-                dprint("Operation canceled by user.")
+                cprint("Operation canceled. Existing wake session remains active.")
                 return
             }
-        } else if sessionIsActive(), force {
-            stop()
         }
-        
-        startDeamon(duration: duration)
+
+        if active {
+            _ = try stop()
+        } else if getCurrentSession() != nil {
+            try releaseSession()
+        }
+
+        try startDaemon(duration: duration)
     }
-    
-    private func startDeamon(duration: TimeInterval?) {
+
+    private func startDaemon(duration: TimeInterval?) throws {
         logger.info("Setting up daemon process.")
-        
-        setupSignalHandler()
-        let daemon = Process()
-        let executablePath: String
-        if let bundlePath = Bundle.main.executablePath {
-            executablePath = bundlePath
-        } else {
-            let rawPath = CommandLine.arguments[0]
-            executablePath = URL(fileURLWithPath: rawPath, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)).standardized.path
-        }
-        daemon.executableURL = URL(fileURLWithPath: executablePath)
+
+        setupSignalHandler(duration: duration)
+        let daemon = DmnService.createBackgroundDaemon()
         daemon.arguments = ["wake-daemon", "--start"]
-        
+
         if let duration = duration {
             daemon.arguments?.append(contentsOf: ["--duration", "\(duration)"])
         }
-        
-        let pipe = Pipe()
-        daemon.standardOutput = pipe
-        
-        do {
-            try daemon.run()
-#if DEBUG
-            cprint("Daemon successfully started with PID: \(daemon.processIdentifier)", .success)
-#endif
-            saveSession(daemon.processIdentifier, duration: duration)
-            
-            RunLoop.main.run()
-        } catch {
-            cprint("Failed to start wake session: \(error)", .error )
-        }
+
+        try daemon.run()
+        RunLoop.main.run()
     }
-    
-    private func setupSignalHandler() {
-        // Create signals
+
+    private func setupSignalHandler(duration: TimeInterval?) {
         let successSignal = DispatchSource.makeSignalSource(signal: Signal.success.rawValue, queue: .main)
         let failureSignal = DispatchSource.makeSignalSource(signal: Signal.failure.rawValue, queue: .main)
-        
-        // Ignore detault system behaviuor for signals
+
         signal(Signal.success.rawValue, SIG_IGN)
         signal(Signal.failure.rawValue, SIG_IGN)
-        
+
         successSignal.setEventHandler {
-            
-            cprint("Wake session started successfully!", .success)
-            
+            if let duration {
+                cprint("Wake session started successfully. Duration: \(formatDuration(duration)).", .success)
+            } else {
+                cprint("Wake session started successfully. Duration: indefinite.", .success)
+            }
             successSignal.cancel()
             exit(0)
         }
-        
+
         failureSignal.setEventHandler { [weak self] in
-            guard let self else { return }
-            
-            cprint("Failed to start wake session.", .error)
-            dprint("Killing deamon")
-            
+            try? self?.releaseSession()
             failureSignal.cancel()
-            releaseSession()
-            exit(0)
+            exit(1)
         }
 
         successSignal.resume()
         failureSignal.resume()
     }
-    
-    
-    func stop(force: Bool = false) {
+    func stop(force: Bool = false) throws -> WakeStopResult {
+        try requireReadableSessionState()
         guard let session = getCurrentSession() else {
             logger.info("No active session to stop.")
-            print("No active session to stop.")
-            return
+            return .notRunning
         }
-        
-        dprint("Daemon exists: \(kill(session.deamonID, 0) == 0)")
-        
-        if force {
-            send(.kill, session.deamonID)
-        } else {
-            send(.terminate, session.deamonID)
+
+        guard processIsRunning(session.deamonID) else {
+            try releaseSession()
+            return .notRunning
         }
-        releaseSession()
+
+        let signal: Signal = force ? .kill : .terminate
+        guard send(signal, session.deamonID) == .success else {
+            throw WakeManagerError.couldNotStop
+        }
+
+        try releaseSession()
+        return .stopped
     }
-    
-    private func isDeamonRunning() -> Bool {
-        guard let pid = getCurrentSession()?.deamonID else { return false }
-        return kill(pid, 0) == 0
-    }
-    
-    func status() -> (startTime: Date, remainingTime: TimeInterval?)? {
-        guard let sessionData = getCurrentSession(), isDeamonRunning() else { return nil }
+
+    func status() throws -> (startTime: Date, remainingTime: TimeInterval?)? {
+        try requireReadableSessionState()
+        guard let sessionData = getCurrentSession() else { return nil }
+        guard processIsRunning(sessionData.deamonID) else {
+            try releaseSession()
+            return nil
+        }
         if let duration = sessionData.duration {
             let elapsed = Date().timeIntervalSince(sessionData.startTime)
             return (sessionData.startTime, max(duration - elapsed, 0))
         }
         return (sessionData.startTime, nil)
+    }
+}
+
+enum WakeStopResult {
+    case stopped
+    case notRunning
+}
+
+enum WakeManagerError: LocalizedError {
+    case couldNotStop
+
+    var errorDescription: String? {
+        switch self {
+        case .couldNotStop:
+            "Failed to terminate the wake session daemon."
+        }
     }
 }

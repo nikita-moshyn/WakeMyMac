@@ -17,19 +17,13 @@ import ArgumentParser
 
 
 struct WakeMyMac: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Prevent your macOS device from sleeping with advanced scheduling and configuration options.",
+    static let configuration = CommandConfiguration(commandName: "wake",
+                                                    abstract: "Prevent macOS display sleep with configurable, daemon-backed wake sessions.",
+                                                    version: appVersion,
                                                     subcommands: [Start.self, Stop.self, Status.self, WakeDaemon.self, AlwaysActiveCommand.self, AlwaysActiveDaemon.self],
                                                     defaultSubcommand: nil)
-    @Flag(name: .shortAndLong, help: "Show the current Wake version.")
-    var version: Bool = false
-    
+
     func run() throws {
-        printVersion()
-    }
-    
-    private func printVersion() {
-        if version {
-            cprint("WakeMyMac version: \(appVersion)", .white)
-        }
+        throw CleanExit.helpRequest(self)
     }
 }

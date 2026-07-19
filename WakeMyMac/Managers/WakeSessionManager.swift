@@ -19,6 +19,7 @@ class WakeSessionManager {
 
     private let storage: any SessionStorage
     private var session: WakeSession?
+    private var restorationError: Error?
 
     init() {
         self.storage = AppServices.sessionStorage
@@ -38,37 +39,30 @@ class WakeSessionManager {
         restoreSession()
     }
 
+    func requireReadableSessionState() throws {
+        guard let restorationError else { return }
+        throw WakeSessionManagerError.couldNotReadState(restorationError)
+    }
+
     private func restoreSession() {
         do {
             session = try storage.loadWakeSession()
+            restorationError = nil
         } catch {
             session = nil
+            restorationError = error
             logger.error("Failed to load session: \(error.localizedDescription)")
         }
 
         if session == nil {
             logger.info("Saved session is not detected.")
-            dprint("Saved session is not detected")
         }
     }
     
-    func sessionIsActive() -> Bool {
-        let status = session != nil
-        logger.info("Session status: \(status)")
+    func sessionIsActive() throws -> Bool {
+        try requireReadableSessionState()
         guard let daemonID = session?.deamonID else { return false }
-        guard send(.isActive, daemonID) == .success else { return false }
-        return status
-    }
-    
-    func savedSessionExists() -> Bool {
-        do {
-            let exists = try storage.loadWakeSession() != nil
-            logger.info("Saved session exists: \(exists)")
-            return exists
-        } catch {
-            logger.error("Failed to check saved session: \(error.localizedDescription)")
-            return false
-        }
+        return processIsRunning(daemonID)
     }
     
     func saveSession(_ session: WakeSession) throws {
@@ -78,37 +72,28 @@ class WakeSessionManager {
         self.session = session
     }
     
-    func saveSession(_ daemonID: Int32, duration: TimeInterval?) {
-        let session = WakeSession(deamonID: daemonID, duration: duration)
-        try? saveSession(session)
-    }
-    
-    private func deleteFileIfExists() {
+    func releaseSession() throws {
         do {
             try storage.deleteWakeSession()
             logger.info("Session file was successfully removed")
         } catch {
             logger.error("Failed to delete session file: \(error.localizedDescription)")
+            throw WakeSessionManagerError.couldNotUpdateState(error)
         }
-    }
-    
-    func releaseSession() {
-        deleteFileIfExists()
         session = nil
     }
-    
-    /// Saves IOPMAssertionID to existing saved session
-    /// Returns result as a bool
-    @discardableResult
-    func saveAssertion(id: IOPMAssertionID) -> Bool {
-        guard var session else { return false }
+}
 
-        do {
-            session.assertionID = id
-            try saveSession(session)
-            return true
-        } catch {
-            return false
+enum WakeSessionManagerError: LocalizedError {
+    case couldNotReadState(Error)
+    case couldNotUpdateState(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .couldNotReadState(let error):
+            "Failed to read saved session state: \(error.localizedDescription)"
+        case .couldNotUpdateState(let error):
+            "Failed to update saved session state: \(error.localizedDescription)"
         }
     }
 }
