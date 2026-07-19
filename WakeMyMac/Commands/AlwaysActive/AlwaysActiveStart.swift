@@ -21,6 +21,9 @@ struct AlwaysActiveStart: ParsableCommand {
 
     private var storage: any SessionStorage = AppServices.sessionStorage
 
+    @Argument(help: "Activity mode: 'keyboard'/'k' or 'mouse'/'m'.")
+    var mode: AlwaysActiveMode = .keyboard
+
     @Flag(name: .shortAndLong, help: "Force restart if already active.")
     var force: Bool = false
     
@@ -28,6 +31,7 @@ struct AlwaysActiveStart: ParsableCommand {
     var debug: Bool = false
 
     private enum CodingKeys: String, CodingKey {
+        case mode
         case force
         case debug
     }
@@ -96,13 +100,13 @@ struct AlwaysActiveStart: ParsableCommand {
         setupSignalHandler()
 
         let daemon = DmnService.createBackgroundDaemon()
-        daemon.arguments = ["always-active-daemon", "--start"]
+        daemon.arguments = ["always-active-daemon", "--start", "--mode", mode.rawValue]
 
         do {
             try daemon.run()
             dprint("Started daemon (PID \(daemon.processIdentifier)).", debug)
 
-            let session = AlwaysActiveSession(daemonID: daemon.processIdentifier)
+            let session = AlwaysActiveSession(daemonID: daemon.processIdentifier, mode: mode)
             try storage.saveAlwaysActiveSession(session)
 
             RunLoop.main.run()

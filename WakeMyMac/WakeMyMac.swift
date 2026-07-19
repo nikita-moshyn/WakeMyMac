@@ -17,10 +17,23 @@ import ArgumentParser
 
 
 struct WakeMyMac: ParsableCommand {
+    private static var availableSubcommands: [ParsableCommand.Type] {
+        var subcommands: [ParsableCommand.Type] = [Start.self,
+                                                    Stop.self,
+                                                    Status.self,
+                                                    WakeDaemon.self,
+                                                    AlwaysActiveCommand.self,
+                                                    AlwaysActiveDaemon.self]
+#if DEBUG
+        subcommands.append(AlwaysActiveTestCommand.self)
+#endif
+        return subcommands
+    }
+
     static let configuration = CommandConfiguration(commandName: "wake",
                                                     abstract: "Prevent macOS display sleep with configurable, daemon-backed wake sessions.",
                                                     version: appVersion,
-                                                    subcommands: [Start.self, Stop.self, Status.self, WakeDaemon.self, AlwaysActiveCommand.self, AlwaysActiveDaemon.self],
+                                                    subcommands: availableSubcommands,
                                                     defaultSubcommand: nil)
 
     func run() throws {

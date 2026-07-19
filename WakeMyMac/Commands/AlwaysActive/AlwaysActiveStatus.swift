@@ -46,7 +46,7 @@ struct AlwaysActiveStatus: ParsableCommand {
                 return
             }
 
-            cprint("Always Active session is active.", .success)
+            cprint("Always Active session is active in \(session.mode.rawValue) mode.", .success)
             dprint("Daemon ID: \(session.daemonID)", debug)
         } catch {
             cprint("Failed to check Always Active status: \(error.localizedDescription)", .error)

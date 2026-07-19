@@ -19,7 +19,8 @@ struct AlwaysActiveCommand: ParsableCommand {
     static var configuration = CommandConfiguration(commandName: "always-active",
                                                     abstract: "Manage the Always Active daemon and its session state.",
                                                     discussion: """
-                                                    Always Active simulates a Shift key press after four minutes without keyboard or mouse activity. \
+                                                    Always Active simulates a Shift key press or a one-unit mouse movement after four minutes without keyboard or mouse activity. \
+                                                    Keyboard mode is used by default; select mouse mode when starting the session. \
                                                     Terminal must be enabled under Privacy & Security > Accessibility.
                                                     """,
                                                     subcommands: [AlwaysActiveStart.self,

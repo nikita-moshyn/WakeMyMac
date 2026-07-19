@@ -22,6 +22,9 @@ final class AlwaysActiveDaemon: ParsableCommand {
     @Flag(help: "Start the always active session.")
     var start: Bool = false
 
+    @Option(help: "Activity mode to use for the always active session.")
+    var mode: AlwaysActiveMode = .keyboard
+
     required init() {}
 
     func run() throws {
@@ -35,7 +38,14 @@ final class AlwaysActiveDaemon: ParsableCommand {
             send(.failure)
             throw ExitCode.failure
         }
-        guard KEService.startActivity() else {
+
+        let didStartActivity = switch mode {
+        case .keyboard:
+            KEService.startActivity()
+        case .mouse:
+            MEService.startActivity()
+        }
+        guard didStartActivity else {
             cprint("Failed to create the activity event tap. Verify Terminal Accessibility access.", .error)
             send(.failure)
             throw ExitCode.failure
