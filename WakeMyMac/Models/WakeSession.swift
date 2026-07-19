@@ -16,8 +16,8 @@ import Foundation
 import IOKit.pwr_mgt
 
 struct WakeSession: Codable {
-    // Background process ID (deamon)
-    var deamonID: Int32
+    // Background process ID (daemon)
+    var daemonID: Int32
     // IOPMAssertion ID (process to keep mac active)
     var assertionID: IOPMAssertionID
     
@@ -25,8 +25,8 @@ struct WakeSession: Codable {
     var duration: TimeInterval?
     var endTime: Date? { duration.map { startTime.addingTimeInterval($0) } }
     
-    init(deamonID: Int32 = 0, assertionID: IOPMAssertionID = 0, duration: TimeInterval? = nil) {
-        self.deamonID = deamonID
+    init(daemonID: Int32 = 0, assertionID: IOPMAssertionID = 0, duration: TimeInterval? = nil) {
+        self.daemonID = daemonID
         self.assertionID = assertionID
         self.startTime = Date()
         self.duration = duration

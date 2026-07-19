@@ -92,13 +92,13 @@ final class WakeManager: WakeSessionManager {
             return .notRunning
         }
 
-        guard processIsRunning(session.deamonID) else {
+        guard processIsRunning(session.daemonID) else {
             try releaseSession()
             return .notRunning
         }
 
         let signal: Signal = force ? .kill : .terminate
-        guard send(signal, session.deamonID) == .success else {
+        guard send(signal, session.daemonID) == .success else {
             throw WakeManagerError.couldNotStop
         }
 
@@ -109,7 +109,7 @@ final class WakeManager: WakeSessionManager {
     func status() throws -> (startTime: Date, remainingTime: TimeInterval?)? {
         try requireReadableSessionState()
         guard let sessionData = getCurrentSession() else { return nil }
-        guard processIsRunning(sessionData.deamonID) else {
+        guard processIsRunning(sessionData.daemonID) else {
             try releaseSession()
             return nil
         }

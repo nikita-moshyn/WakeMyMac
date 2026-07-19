@@ -61,7 +61,7 @@ class WakeSessionManager {
     
     func sessionIsActive() throws -> Bool {
         try requireReadableSessionState()
-        guard let daemonID = session?.deamonID else { return false }
+        guard let daemonID = session?.daemonID else { return false }
         return processIsRunning(daemonID)
     }
     

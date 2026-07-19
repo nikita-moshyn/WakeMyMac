@@ -51,7 +51,7 @@ final class WakeDaemon: WakeSessionManager, ParsableCommand {
             throw ExitCode.failure
         }
 
-        let session = WakeSession(deamonID: getpid(), assertionID: assertionID, duration: duration)
+        let session = WakeSession(daemonID: getpid(), assertionID: assertionID, duration: duration)
         do {
             try saveSession(session)
         } catch {
