@@ -33,18 +33,18 @@ final class KeyboardEventService {
     
     // MARK: - Public Methods
 
-    func startActivity() -> Bool {
-        startActivity(timeout: 240)
+    func startActivity(inactivityInterval: TimeInterval = WakeSettings.defaultInactivityInterval) -> Bool {
+        beginActivity(inactivityInterval: inactivityInterval)
     }
 
 #if DEBUG
-    func startTestActivity(timeout: TimeInterval, eventHandler: @escaping (Bool) -> Void) -> Bool {
-        startActivity(timeout: timeout, eventHandler: eventHandler)
+    func startTestActivity(inactivityInterval: TimeInterval, eventHandler: @escaping (Bool) -> Void) -> Bool {
+        beginActivity(inactivityInterval: inactivityInterval, eventHandler: eventHandler)
     }
 #endif
 
-    private func startActivity(timeout: TimeInterval, eventHandler: ((Bool) -> Void)? = nil) -> Bool {
-        guard let watcher = IdleWatcher(timeout: timeout, timeoutHandler: { [weak self] in
+    private func beginActivity(inactivityInterval: TimeInterval, eventHandler: ((Bool) -> Void)? = nil) -> Bool {
+        guard let watcher = IdleWatcher(inactivityInterval: inactivityInterval, inactivityHandler: { [weak self] in
             let didGenerateEvent = self?.generateKeyboardEvent() ?? false
             eventHandler?(didGenerateEvent)
         }) else {

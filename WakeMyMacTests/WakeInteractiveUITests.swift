@@ -39,7 +39,7 @@ final class WakeInteractiveUITests: XCTestCase {
         XCTAssertEqual(frame.components(separatedBy: "\r\n").count, 24)
         XCTAssertEqual(plainFrame.components(separatedBy: "WakeMyMac").count - 1, 1)
         XCTAssertTrue(plainFrame.contains("47m 18s remaining"))
-        XCTAssertTrue(plainFrame.contains("mouse mode · 2m 41s elapsed"))
+        XCTAssertTrue(plainFrame.contains("mouse · until stopped · 4m interval"))
         XCTAssertFalse(plainFrame.contains("Takeaways"))
         XCTAssertTrue(frame.contains("\u{001B}[7m"))
     }
@@ -59,12 +59,93 @@ final class WakeInteractiveUITests: XCTestCase {
         XCTAssertEqual(formatLiveDuration(3_723), "1h 02m 03s")
     }
 
-    func testWakeDurationMenuStartsWithInfiniteAndUsesReducedPresets() {
-        XCTAssertEqual(WakeUIContent.durationItems.map(\.label), ["Infinite", "1h", "4h", "8h", "Custom", "Back"])
+    func testDurationParserRejectsOverflowInsteadOfFallingBackToMinutes() {
+        XCTAssertNil(parseDuration("999999999999999999999999999999h1m"))
+    }
 
-        guard case .duration(.indefinite) = WakeUIContent.durationItems.first?.action else {
-            return XCTFail("Expected Infinite to be the first wake duration.")
+    func testInactivityIntervalSupportsSecondsAndOptionalSpaces() {
+        XCTAssertEqual(parseInactivityInterval("15s"), 15)
+        XCTAssertEqual(parseInactivityInterval("3m30s"), 210)
+        XCTAssertEqual(parseInactivityInterval("1h30m15s"), 5_415)
+        XCTAssertEqual(parseInactivityInterval("1h 30m 15s"), 5_415)
+        XCTAssertEqual(formatInactivityInterval(5_415), "1h 30m 15s")
+        XCTAssertEqual(formatInactivityInterval(210), "3m 30s")
+        XCTAssertEqual(formatInactivityInterval(1), "1s")
+    }
+
+    func testInactivityIntervalRejectsInvalidAndOverflowingValues() {
+        XCTAssertNil(parseInactivityInterval("225"))
+        XCTAssertNil(parseInactivityInterval("0s"))
+        XCTAssertNil(parseInactivityInterval("30s3m"))
+        XCTAssertNil(parseInactivityInterval("3m2m"))
+        XCTAssertNil(parseInactivityInterval("999999999999999999999999999999h1s"))
+        XCTAssertNil(parseInactivityInterval("\(Int.max)s"))
+        XCTAssertNil(parseDuration("15s"))
+        XCTAssertNil(parseDuration("3m30s"))
+        XCTAssertNil(parseDuration("1h 30m"))
+    }
+
+    func testOnlyInactivityInputAcceptsSecondsAndSpaces() {
+        XCTAssertTrue(WakeTextInput.inactivityInterval.accepts("s"))
+        XCTAssertTrue(WakeTextInput.inactivityInterval.accepts(" "))
+        XCTAssertFalse(WakeTextInput.customDuration(.wake).accepts("s"))
+        XCTAssertFalse(WakeTextInput.newPresetDuration(name: "Workday").accepts(" "))
+    }
+
+    func testWakeDurationMenuUsesEditableHourlyDefaults() {
+        let items = WakeUIContent.durationItems(settings: WakeSettings())
+        XCTAssertEqual(items.map(\.label), ["Indefinite", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "Custom", "Back"])
+
+        guard case .duration(.indefinite) = items.first?.action else {
+            return XCTFail("Expected Indefinite to be the first wake duration.")
         }
+    }
+
+    func testNamedPresetAppearsInEverySharedDurationPicker() {
+        let settings = WakeSettings(durationPresets: [WakeDurationPreset(name: "Workday", duration: 7.5 * 60 * 60)])
+
+        XCTAssertEqual(WakeUIContent.durationItems(settings: settings).map(\.label), ["Indefinite", "Workday", "Custom", "Back"])
+    }
+
+    func testHomeIncludesStartAllAndSettings() {
+        let labels = WakeUIContent.homeItems(snapshot: WakeUIStatusSnapshot()).map(\.label)
+
+        XCTAssertTrue(labels.contains("Start all sessions"))
+        XCTAssertTrue(labels.contains("Settings"))
+        XCTAssertFalse(labels.contains("View details"))
+    }
+
+    func testSettingsIncludesDestructiveDataRemoval() {
+        let labels = WakeUIContent.settingsItems(settings: WakeSettings()).map(\.label)
+        let items = WakeUIContent.confirmationItems(.clearAllData)
+        var state = WakeUIState()
+        state.show(.confirmation(.clearAllData))
+
+        XCTAssertTrue(labels.contains("Remove all saved data"))
+        XCTAssertEqual(items.map(\.label), ["Remove all data", "Cancel"])
+        XCTAssertEqual(state.selectedIndex, 1)
+    }
+
+    func testLongPresetMenuKeepsSelectionVisible() {
+        let presets = (1 ... 20).map { WakeDurationPreset(name: "Preset \($0)", duration: TimeInterval($0 * 60)) }
+        let snapshot = WakeUIStatusSnapshot(settings: WakeSettings(durationPresets: presets))
+        var state = WakeUIState()
+        state.show(.durations(.wake))
+        state.selectedIndex = 20
+
+        let frame = WakeFullScreenRenderer(colorsEnabled: false).render(state: state, snapshot: snapshot, size: TerminalSize(rows: 20, columns: 76), now: Date())
+
+        XCTAssertTrue(removingANSI(from: frame).contains("Preset 20"))
+    }
+
+    func testAlwaysActiveSessionDecodesLegacyDefaults() throws {
+        let data = Data(#"{"daemonID":42,"startTime":0,"mode":"mouse"}"#.utf8)
+
+        let session = try JSONDecoder().decode(AlwaysActiveSession.self, from: data)
+
+        XCTAssertNil(session.duration)
+        XCTAssertEqual(session.inactivityInterval, 4 * 60)
+        XCTAssertEqual(session.mode, .mouse)
     }
 
     func testStopAlwaysActiveAppearsBeforeCancel() {
@@ -83,8 +164,8 @@ final class WakeInteractiveUITests: XCTestCase {
         let alwaysActiveLabels = WakeUIContent.homeItems(snapshot: WakeUIStatusSnapshot(alwaysActiveSession: AlwaysActiveSession(daemonID: 42))).map(\.label)
 
         XCTAssertFalse(inactiveLabels.contains("Stop all sessions"))
-        XCTAssertEqual(wakeLabels.firstIndex(of: "Stop all sessions"), wakeLabels.firstIndex(of: "Manage Always Active").map { $0 + 1 })
-        XCTAssertEqual(alwaysActiveLabels.firstIndex(of: "Stop all sessions"), alwaysActiveLabels.firstIndex(of: "Manage Always Active").map { $0 + 1 })
+        XCTAssertEqual(wakeLabels.firstIndex(of: "Stop all sessions"), wakeLabels.firstIndex(of: "Restart all sessions").map { $0 + 1 })
+        XCTAssertEqual(alwaysActiveLabels.firstIndex(of: "Stop all sessions"), alwaysActiveLabels.firstIndex(of: "Restart all sessions").map { $0 + 1 })
     }
 
     func testStopAllConfirmationShowsActionBeforeCancel() {

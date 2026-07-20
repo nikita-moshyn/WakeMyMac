@@ -5,7 +5,9 @@
 ## Features
 
 - Prevent macOS from sleeping with configurable wake sessions.
-- Schedule sessions for specified durations (e.g., "1h", "120min") or run indefinitely.
+- Schedule sessions for specified durations (e.g., "1h", "120m") or run indefinitely.
+- Run Wake and Always Active together for one shared duration.
+- Customize the Always Active Inactivity interval and shared named duration presets.
 - Start, stop, and check the status of a wake session.
 - Use a guided terminal interface powered by [Noora](https://github.com/tuist/Noora).
 - Integrated daemon mode to maintain an active session in the background.
@@ -60,7 +62,9 @@ wake
 
 WakeMyMac opens in an isolated full-screen terminal buffer, so navigation and status updates never add prompt history. When the interface closes, the previous terminal screen is restored exactly as it was.
 
-Use the up and down arrows (or `k` and `j`) to move, press Return to select, `Esc` to go back, and `q` to quit. Wake and Always Active timing updates live in the header. Duration controls, details, confirmations, custom input, Accessibility setup, and Always Active modes all replace content inside the same frame.
+Use the up and down arrows (or `k` and `j`) to move, press Return to select, `Esc` to go back, and Ctrl-C to quit. Wake and Always Active timing updates live in the header. Duration controls, settings, details, confirmations, custom input, Accessibility setup, and Always Active modes all replace content inside the same frame.
+
+The main menu can start Wake, Always Active, or both sessions together. All three flows share the configured duration picker: Indefinite, named timed presets, and a one-off Custom duration.
 
 All direct commands remain available for scripts and experienced users. When input or output is redirected, running `wake` without a subcommand continues to print command help instead of opening an interactive prompt.
 
@@ -70,7 +74,7 @@ All direct commands remain available for scripts and experienced users. When inp
 wake start [duration]
 ```
 
-- **duration:** (optional) Specify the session duration (e.g., 1h, 120min). If omitted, the session runs indefinitely.
+- **duration:** (optional) Specify the session duration (e.g., 1h, 120m). If omitted, the session runs indefinitely.
 - **Force start:** To force a session when one is already active, include the `--force` flag or `-f`.
 
 Indefinit example:
@@ -84,6 +88,21 @@ wake start
 ```bash
 wake start 1h
 ```
+
+Named presets can be selected explicitly:
+
+```bash
+wake start --preset Workday
+```
+
+Start Wake and Always Active together with `--all` (or `-a`). Keyboard mode is the default; use `--mode mouse` when preferred:
+
+```bash
+wake start 8h --all --mode mouse
+wake start --all --preset Workday --mode keyboard
+```
+
+If either service is already running, Start All asks before replacing active sessions. `--force` skips that confirmation. If Wake fails after Always Active starts, WakeMyMac stops the newly started Always Active session so the result is not left half-started.
 
 If a session is already active, you will be prompted:
 
@@ -112,7 +131,7 @@ This displays the start time of the session and any remaining time if a duration
 
 ### Always Active Sessions
 
-Always Active simulates input after four minutes without keyboard or mouse activity. Keyboard mode is used by default:
+Always Active simulates input after the configured Inactivity interval without keyboard or mouse activity. The default interval is four minutes, and keyboard mode is used by default:
 
 ```bash
 wake aa start
@@ -127,7 +146,52 @@ wake aa start mouse
 wake aa start m
 ```
 
+Always Active sessions can run indefinitely or stop after a raw duration or named preset:
+
+```bash
+wake aa start keyboard --duration 2h
+wake aa start mouse --preset Workday
+```
+
 Only one Always Active session can run at a time. Stop the current session before changing modes, or use `wake aa start <mode> --force` to replace it. Use `wake aa status` to see the active mode.
+
+`wake aa status` reports the selected mode, time remaining, and the Inactivity interval captured when the session started. Changing settings does not alter an already running daemon; restart Always Active to apply the new interval.
+
+### Settings and Duration Presets
+
+Open **Settings** from the interactive main menu, or use the equivalent direct commands:
+
+```bash
+wake settings show
+wake settings interval show
+wake settings interval set 3m45s
+wake settings interval set "3m 45s"
+wake settings interval reset
+```
+
+The Inactivity interval accepts hours, minutes, and seconds in descending unit order, including compact values such as `15s`, `3m30s`, and `1h30m15s`. Quote values that contain spaces. Seconds are intentionally limited to this setting; session durations and named preset durations continue to accept hours and minutes only.
+
+Timed duration presets are fully editable. Indefinite and Custom remain available as fixed picker options:
+
+```bash
+wake settings presets list
+wake settings presets add Workday 8h
+wake settings presets edit Workday --name "Office day" --duration 7h30m
+wake settings presets move "Office day" 1
+wake settings presets remove "Office day"
+wake settings presets reset --force
+```
+
+Preset names are matched case-insensitively. Quote names containing spaces. The initial picker contains 1h through 8h; resetting presets restores that list.
+
+To remove every saved WakeMyMac file, select **Remove all saved data** in Settings or use:
+
+```bash
+wake settings clear
+wake settings clear --force
+```
+
+WakeMyMac warns before stopping both sessions normally and deleting the complete `~/.wake` directory plus legacy `~/wakeSession` state. `--force` skips only the confirmation. If either session cannot be stopped, saved data is retained. Successful removal closes the interactive interface.
 
 Debug builds also provide a short diagnostic flow:
 
@@ -135,7 +199,7 @@ Debug builds also provide a short diagnostic flow:
 wake test aa start mouse
 ```
 
-The diagnostic uses a one-second idle timeout, holds the current process run loop, verifies the generated event and cursor movement, releases its event service and idle watcher, and prints the results. It does not launch a daemon or modify Always Active session storage. The `test` command is excluded from Release builds.
+The diagnostic uses a one-second Inactivity interval, holds the current process run loop, verifies the generated event and cursor movement, releases its event service and idle watcher, and prints the results. It does not launch a daemon or modify Always Active session storage. The `test` command is excluded from Release builds.
 
 ### Local Session Storage
 
@@ -143,10 +207,11 @@ WakeMyMac keeps its local runtime state in separate JSON files inside `~/.wake/`
 
 - `~/.wake/wakeSession` for a standard wake session.
 - `~/.wake/alwaysActiveSession` for an always-active session.
+- `~/.wake/wakeConfig` for the Inactivity interval and duration presets after settings are customized.
 
-The always-active session file records its selected mode for status output. The daemon receives that mode through its launch arguments and does not use the session file as configuration.
+The always-active session file records its selected mode, duration, and startup Inactivity interval for status output. The daemon receives a snapshot of those values through its launch arguments and does not read live configuration changes.
 
-The directory is created with owner-only permissions and is removed automatically when it becomes empty. Existing `~/wakeSession` data from older versions is migrated into `~/.wake/` the next time it is loaded.
+The directory is created with owner-only permissions and is removed automatically when it becomes empty. Existing `~/wakeSession` data from older versions is migrated into `~/.wake/` the next time it is loaded. `wake settings clear` removes this entire directory, including unrecognized files inside it, as well as the legacy state file.
 
 ### Security Note
 

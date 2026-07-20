@@ -19,11 +19,14 @@ struct AlwaysActiveSession: Session {
     let startTime: Date
     var duration: TimeInterval?
     let mode: AlwaysActiveMode
+    let inactivityInterval: TimeInterval
     
-    init(daemonID: Int32, mode: AlwaysActiveMode = .keyboard, startTime: Date = Date()) {
+    init(daemonID: Int32, mode: AlwaysActiveMode = .keyboard, startTime: Date = Date(), duration: TimeInterval? = nil, inactivityInterval: TimeInterval = WakeSettings.defaultInactivityInterval) {
         self.daemonID = daemonID
         self.mode = mode
         self.startTime = startTime
+        self.duration = duration
+        self.inactivityInterval = inactivityInterval
     }
 
     init(from decoder: any Decoder) throws {
@@ -32,6 +35,7 @@ struct AlwaysActiveSession: Session {
         startTime = try container.decode(Date.self, forKey: .startTime)
         duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration)
         mode = try container.decodeIfPresent(AlwaysActiveMode.self, forKey: .mode) ?? .keyboard
+        inactivityInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .inactivityInterval) ?? WakeSettings.defaultInactivityInterval
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -39,5 +43,6 @@ struct AlwaysActiveSession: Session {
         case startTime
         case duration
         case mode
+        case inactivityInterval
     }
 }

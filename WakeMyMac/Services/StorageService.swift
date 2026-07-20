@@ -14,23 +14,25 @@
 
 import Foundation
 
-final class FileSessionStorage: SessionStorage {
+final class FileSessionStorage: SessionStorage, SettingsStorage, ApplicationDataStorage {
     static let shared = FileSessionStorage()
 
     private let folderName = ".wake"
     private let fileManager: FileManager
+    private let homeDirectoryURL: URL
     private let queue = DispatchQueue(label: "com.wakeCLI.fileSessionStorage", attributes: .concurrent)
 
     private var storageDirectoryURL: URL {
-        fileManager.homeDirectoryForCurrentUser.appendingPathComponent(folderName)
+        homeDirectoryURL.appendingPathComponent(folderName)
     }
 
     private var legacyWakeSessionURL: URL {
-        fileManager.homeDirectoryForCurrentUser.appendingPathComponent(Constants.wakeSession.rawValue)
+        homeDirectoryURL.appendingPathComponent(Constants.wakeSession.rawValue)
     }
 
-    private init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, homeDirectoryURL: URL? = nil) {
         self.fileManager = fileManager
+        self.homeDirectoryURL = homeDirectoryURL ?? fileManager.homeDirectoryForCurrentUser
     }
 
     func loadWakeSession() throws -> WakeSession? {
@@ -59,6 +61,29 @@ final class FileSessionStorage: SessionStorage {
 
     func deleteAlwaysActiveSession() throws {
         try deleteFile(.alwaysActiveSession)
+    }
+
+    func loadSettings() throws -> WakeSettings? {
+        try loadFile(.settings, as: WakeSettings.self)
+    }
+
+    func saveSettings(_ settings: WakeSettings) throws {
+        try saveFile(settings, to: .settings)
+    }
+
+    func deleteSettings() throws {
+        try deleteFile(.settings)
+    }
+
+    func removeAllData() throws {
+        try queue.sync(flags: .barrier) {
+            if fileManager.fileExists(atPath: storageDirectoryURL.path) {
+                try fileManager.removeItem(at: storageDirectoryURL)
+            }
+            if fileManager.fileExists(atPath: legacyWakeSessionURL.path) {
+                try fileManager.removeItem(at: legacyWakeSessionURL)
+            }
+        }
     }
 
     private func saveFile<Value: Encodable>(_ value: Value, to file: SessionFile) throws {
@@ -121,6 +146,7 @@ final class FileSessionStorage: SessionStorage {
 private enum SessionFile {
     case wakeSession
     case alwaysActiveSession
+    case settings
 
     var fileName: String {
         switch self {
@@ -128,6 +154,8 @@ private enum SessionFile {
             Constants.wakeSession.rawValue
         case .alwaysActiveSession:
             Constants.alwaysActiveSession.rawValue
+        case .settings:
+            Constants.wakeConfig.rawValue
         }
     }
 }

@@ -25,6 +25,12 @@ final class AlwaysActiveDaemon: ParsableCommand {
     @Option(help: "Activity mode to use for the always active session.")
     var mode: AlwaysActiveMode = .keyboard
 
+    @Option(help: "Session duration in seconds. Omit for an indefinite session.")
+    var duration: TimeInterval?
+
+    @Option(help: "Seconds without user input before activity is simulated.")
+    var inactivityInterval: TimeInterval = WakeSettings.defaultInactivityInterval
+
     required init() {}
 
     func run() throws {
@@ -38,12 +44,17 @@ final class AlwaysActiveDaemon: ParsableCommand {
             send(.failure)
             throw ExitCode.failure
         }
+        guard inactivityIntervalIsValid(inactivityInterval), duration?.isFinite != false, duration.map({ $0 > 0 }) ?? true else {
+            cprint("Always Active received an invalid duration or Inactivity interval.", .error)
+            send(.failure)
+            throw ExitCode.failure
+        }
 
         let didStartActivity = switch mode {
         case .keyboard:
-            KEService.startActivity()
+            KEService.startActivity(inactivityInterval: inactivityInterval)
         case .mouse:
-            MEService.startActivity()
+            MEService.startActivity(inactivityInterval: inactivityInterval)
         }
         guard didStartActivity else {
             cprint("Failed to create the activity event tap. Verify Terminal Accessibility access.", .error)
@@ -52,6 +63,27 @@ final class AlwaysActiveDaemon: ParsableCommand {
         }
 
         send(.success)
+        if let duration {
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+                Self.stopActivity(mode: self.mode)
+                Self.removeOwnedSessionState()
+                killSelf()
+            }
+        }
         RunLoop.main.run()
+    }
+
+    private static func stopActivity(mode: AlwaysActiveMode) {
+        switch mode {
+        case .keyboard:
+            KEService.stopActivity()
+        case .mouse:
+            MEService.stopActivity()
+        }
+    }
+
+    private static func removeOwnedSessionState() {
+        guard let session = try? AppServices.sessionStorage.loadAlwaysActiveSession(), session.daemonID == getpid() else { return }
+        try? AppServices.sessionStorage.deleteAlwaysActiveSession()
     }
 }
