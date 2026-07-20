@@ -27,7 +27,7 @@ struct Start: ParsableCommand {
     @Flag(name: [.customShort("a"), .customLong("all")], help: "Start Wake and Always Active together.")
     var startAll = false
 
-    @Option(help: "Always Active mode when using --all: 'keyboard'/'k' or 'mouse'/'m'.")
+    @Option(help: "Always Active mode when using --all. Omit to use the configured default.")
     var mode: AlwaysActiveMode?
     
     @Flag(name: .shortAndLong, help: "Replace active sessions without confirmation.")
@@ -90,6 +90,7 @@ struct Start: ParsableCommand {
 
         do {
             let settings = try SettingsManager.current.load()
+            let selectedMode = resolveAlwaysActiveMode(mode, settings: settings)
             let hasActiveSessions = try AllSessionsManager.current.hasActiveSessions()
             var shouldReplace = force
             if hasActiveSessions, !force {
@@ -102,13 +103,13 @@ struct Start: ParsableCommand {
             }
             try AllSessionsManager.current.start(
                 duration: duration,
-                mode: mode ?? .keyboard,
+                mode: selectedMode,
                 inactivityInterval: settings.inactivityInterval,
                 replacingActiveSessions: shouldReplace,
                 force: force
             )
             let durationDescription = duration.map(formatDuration) ?? "indefinite"
-            cprint("Wake and Always Active started successfully. Duration: \(durationDescription). Always Active mode: \((mode ?? .keyboard).rawValue).", .success)
+            cprint("Wake and Always Active started successfully. Duration: \(durationDescription). Always Active mode: \(selectedMode.rawValue).", .success)
         } catch let exitCode as ExitCode {
             throw exitCode
         } catch {

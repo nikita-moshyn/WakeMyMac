@@ -44,6 +44,17 @@ final class WakeInteractiveUITests: XCTestCase {
         XCTAssertTrue(frame.contains("\u{001B}[7m"))
     }
 
+    func testSelectedDescriptionWrapsAcrossRowsInNarrowTerminal() {
+        var state = WakeUIState()
+        state.show(.settings, selectedIndex: 3)
+
+        let frame = WakeFullScreenRenderer(colorsEnabled: false).render(state: state, snapshot: WakeUIStatusSnapshot(), size: TerminalSize(rows: 16, columns: 49), now: Date())
+        let plainFrame = removingANSI(from: frame)
+
+        XCTAssertTrue(plainFrame.contains("Selected\r\n  Stop all sessions, delete ~/.wake and legacy\r\n  session state, then close WakeMyMac."))
+        XCTAssertEqual(frame.components(separatedBy: "\r\n").count, 16)
+    }
+
     func testSelectionWrapsWithinCurrentMenu() {
         var state = WakeUIState()
 
@@ -92,9 +103,9 @@ final class WakeInteractiveUITests: XCTestCase {
         XCTAssertFalse(WakeTextInput.newPresetDuration(name: "Workday").accepts(" "))
     }
 
-    func testWakeDurationMenuUsesEditableHourlyDefaults() {
+    func testWakeDurationMenuUsesReducedDefaults() {
         let items = WakeUIContent.durationItems(settings: WakeSettings())
-        XCTAssertEqual(items.map(\.label), ["Indefinite", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "Custom", "Back"])
+        XCTAssertEqual(items.map(\.label), ["Indefinite", "1h", "4h", "8h", "Custom", "Back"])
 
         guard case .duration(.indefinite) = items.first?.action else {
             return XCTFail("Expected Indefinite to be the first wake duration.")
@@ -107,21 +118,88 @@ final class WakeInteractiveUITests: XCTestCase {
         XCTAssertEqual(WakeUIContent.durationItems(settings: settings).map(\.label), ["Indefinite", "Workday", "Custom", "Back"])
     }
 
-    func testHomeIncludesStartAllAndSettings() {
-        let labels = WakeUIContent.homeItems(snapshot: WakeUIStatusSnapshot()).map(\.label)
+    func testInactiveHomeStartsAlwaysActiveDirectly() {
+        let items = WakeUIContent.homeItems(snapshot: WakeUIStatusSnapshot())
+        let labels = items.map(\.label)
 
         XCTAssertTrue(labels.contains("Start all sessions"))
         XCTAssertTrue(labels.contains("Settings"))
+        XCTAssertTrue(labels.contains("Start Always Active"))
+        XCTAssertFalse(labels.contains("Manage Always Active"))
         XCTAssertFalse(labels.contains("View details"))
+
+        guard let item = items.first(where: { $0.label == "Start Always Active" }), case .startAlwaysActive = item.action else {
+            return XCTFail("Expected the inactive home action to start Always Active.")
+        }
+    }
+
+    func testActiveHomeManagesAlwaysActive() {
+        let snapshot = WakeUIStatusSnapshot(alwaysActiveSession: AlwaysActiveSession(daemonID: 42))
+        let items = WakeUIContent.homeItems(snapshot: snapshot)
+        let labels = items.map(\.label)
+
+        XCTAssertTrue(labels.contains("Manage Always Active"))
+        XCTAssertFalse(labels.contains("Start Always Active"))
+
+        guard let item = items.first(where: { $0.label == "Manage Always Active" }), case .manageAlwaysActive = item.action else {
+            return XCTFail("Expected the active home action to manage Always Active.")
+        }
+    }
+
+    func testAlwaysActiveManagementExcludesDetails() {
+        XCTAssertEqual(WakeUIContent.alwaysActiveItems.map(\.label), ["Change Always Active", "Stop Always Active", "Back"])
+    }
+
+    func testModePickerExplainsKeyboardAndMouseTradeoffs() {
+        let items = WakeUIContent.modeItems
+
+        XCTAssertEqual(items.map(\.label), ["Keyboard (recommended)", "Mouse", "Back"])
+        XCTAssertTrue(items[0].description.contains("does not type text"))
+        XCTAssertTrue(items[1].description.contains("hover-sensitive interfaces"))
+    }
+
+    func testSavedModeIsPreselectedForEveryModePicker() {
+        let selectedIndex = WakeUIContent.modeSelectionIndex(for: .mouse)
+        let screens: [WakeUIScreen] = [
+            .alwaysActiveMode(.alwaysActive, .indefinite),
+            .alwaysActiveMode(.all, .indefinite),
+            .defaultAlwaysActiveMode
+        ]
+
+        for screen in screens {
+            var state = WakeUIState()
+            state.show(screen, selectedIndex: selectedIndex)
+            XCTAssertEqual(state.selectedIndex, 1)
+        }
+        XCTAssertEqual(WakeUIContent.modeSelectionIndex(for: .keyboard), 0)
+    }
+
+    func testInactiveSessionClosesAlwaysActiveManagement() {
+        var state = WakeUIState()
+        state.show(.alwaysActive)
+
+        state.reconcile(with: WakeUIStatusSnapshot())
+
+        XCTAssertEqual(state.screen, .home)
+    }
+
+    func testActiveSessionKeepsAlwaysActiveManagementOpen() {
+        var state = WakeUIState()
+        state.show(.alwaysActive)
+
+        state.reconcile(with: WakeUIStatusSnapshot(alwaysActiveSession: AlwaysActiveSession(daemonID: 42)))
+
+        XCTAssertEqual(state.screen, .alwaysActive)
     }
 
     func testSettingsIncludesDestructiveDataRemoval() {
-        let labels = WakeUIContent.settingsItems(settings: WakeSettings()).map(\.label)
+        let labels = WakeUIContent.settingsItems(settings: WakeSettings(defaultAlwaysActiveMode: .mouse)).map(\.label)
         let items = WakeUIContent.confirmationItems(.clearAllData)
         var state = WakeUIState()
         state.show(.confirmation(.clearAllData))
 
         XCTAssertTrue(labels.contains("Remove all saved data"))
+        XCTAssertTrue(labels.contains("Default Always Active mode  Mouse"))
         XCTAssertEqual(items.map(\.label), ["Remove all data", "Cancel"])
         XCTAssertEqual(state.selectedIndex, 1)
     }

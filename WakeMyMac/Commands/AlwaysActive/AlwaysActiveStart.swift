@@ -21,8 +21,8 @@ struct AlwaysActiveStart: ParsableCommand {
 
     private var manager = AlwaysActiveManager.current
 
-    @Argument(help: "Activity mode: 'keyboard'/'k' or 'mouse'/'m'.")
-    var mode: AlwaysActiveMode = .keyboard
+    @Argument(help: "Activity mode: 'keyboard'/'k' or 'mouse'/'m'. Omit to use the configured default.")
+    var mode: AlwaysActiveMode?
 
     @Option(help: "Session duration (e.g. '30m' or '8h'). Omit for an indefinite session.")
     var duration: String?
@@ -53,6 +53,7 @@ struct AlwaysActiveStart: ParsableCommand {
     func run() throws {
         let selectedDuration = try resolveDuration()
         let settings = try SettingsManager.current.load()
+        let selectedMode = resolveAlwaysActiveMode(mode, settings: settings)
 
         guard A11yService.isAccessibilityEnabled() else {
             try handleMissingAccessibilityPermission()
@@ -73,7 +74,7 @@ struct AlwaysActiveStart: ParsableCommand {
             }
 
             try manager.start(
-                mode: mode,
+                mode: selectedMode,
                 duration: selectedDuration,
                 inactivityInterval: settings.inactivityInterval,
                 replacingActiveSession: shouldReplaceActiveSession,
@@ -81,7 +82,7 @@ struct AlwaysActiveStart: ParsableCommand {
                 debug: debug,
                 onSuccess: {
                     let durationDescription = selectedDuration.map(formatDuration) ?? "indefinite"
-                    cprint("Always Active session started successfully. Duration: \(durationDescription). Inactivity interval: \(formatInactivityInterval(settings.inactivityInterval)).", .success)
+                    cprint("Always Active session started successfully. Duration: \(durationDescription). Mode: \(selectedMode.rawValue). Inactivity interval: \(formatInactivityInterval(settings.inactivityInterval)).", .success)
                 },
                 onFailure: {}
             )

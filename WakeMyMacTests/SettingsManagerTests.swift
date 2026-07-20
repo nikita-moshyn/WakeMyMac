@@ -16,14 +16,15 @@ import XCTest
 @testable import WakeMyMac
 
 final class SettingsManagerTests: XCTestCase {
-    func testMissingSettingsUseFourMinuteIntervalAndHourlyDefaults() throws {
+    func testMissingSettingsUseFourMinuteIntervalAndReducedDefaults() throws {
         let manager = SettingsManager(storage: InMemorySettingsStorage())
 
         let settings = try manager.load()
 
         XCTAssertEqual(settings.inactivityInterval, 4 * 60)
-        XCTAssertEqual(settings.durationPresets.map(\.name), ["1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h"])
-        XCTAssertEqual(settings.durationPresets.map(\.duration), (1 ... 8).map { TimeInterval($0 * 60 * 60) })
+        XCTAssertEqual(settings.defaultAlwaysActiveMode, .keyboard)
+        XCTAssertEqual(settings.durationPresets.map(\.name), ["1h", "4h", "8h"])
+        XCTAssertEqual(settings.durationPresets.map(\.duration), [1, 4, 8].map { TimeInterval($0 * 60 * 60) })
     }
 
     func testPresetCRUDAndOrderingPersist() throws {
@@ -63,6 +64,24 @@ final class SettingsManagerTests: XCTestCase {
         }
     }
 
+    func testDefaultAlwaysActiveModePersistsAndResets() throws {
+        let manager = SettingsManager(storage: InMemorySettingsStorage())
+
+        try manager.setDefaultAlwaysActiveMode(.mouse)
+        XCTAssertEqual(try manager.load().defaultAlwaysActiveMode, .mouse)
+
+        try manager.resetDefaultAlwaysActiveMode()
+        XCTAssertEqual(try manager.load().defaultAlwaysActiveMode, .keyboard)
+    }
+
+    func testLegacySettingsWithoutDefaultModeDecodeAsKeyboard() throws {
+        let data = Data(#"{"inactivityInterval":240,"durationPresets":[]}"#.utf8)
+
+        let settings = try JSONDecoder().decode(WakeSettings.self, from: data)
+
+        XCTAssertEqual(settings.defaultAlwaysActiveMode, .keyboard)
+    }
+
     func testResetOperationsRecoverInvalidStoredSettings() throws {
         let storage = InMemorySettingsStorage(settings: WakeSettings(inactivityInterval: 0, durationPresets: []))
         let manager = SettingsManager(storage: storage)
@@ -72,7 +91,7 @@ final class SettingsManagerTests: XCTestCase {
 
         let settings = try manager.load()
         XCTAssertEqual(settings.inactivityInterval, WakeSettings.defaultInactivityInterval)
-        XCTAssertEqual(settings.durationPresets.count, 8)
+        XCTAssertEqual(settings.durationPresets.map(\.name), ["1h", "4h", "8h"])
     }
 
     func testFileStoragePersistsSettingsInWakeConfig() throws {
@@ -81,13 +100,18 @@ final class SettingsManagerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temporaryHome) }
         let storage = FileSessionStorage(fileManager: .default, homeDirectoryURL: temporaryHome)
         let manager = SettingsManager(storage: storage)
+        try storage.saveAlwaysActiveSession(AlwaysActiveSession(daemonID: 42, mode: .keyboard))
 
         try manager.setInactivityInterval(5 * 60)
+        try manager.setDefaultAlwaysActiveMode(.mouse)
         try manager.addPreset(name: "Workday", duration: 8 * 60 * 60)
 
-        let reloadedSettings = try FileSessionStorage(fileManager: .default, homeDirectoryURL: temporaryHome).loadSettings()
+        let reloadedStorage = FileSessionStorage(fileManager: .default, homeDirectoryURL: temporaryHome)
+        let reloadedSettings = try reloadedStorage.loadSettings()
         XCTAssertEqual(reloadedSettings?.inactivityInterval, 5 * 60)
+        XCTAssertEqual(reloadedSettings?.defaultAlwaysActiveMode, .mouse)
         XCTAssertEqual(reloadedSettings?.durationPresets.last?.name, "Workday")
+        XCTAssertEqual(try reloadedStorage.loadAlwaysActiveSession()?.mode, .keyboard)
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryHome.appendingPathComponent(".wake/wakeConfig").path))
     }
 }

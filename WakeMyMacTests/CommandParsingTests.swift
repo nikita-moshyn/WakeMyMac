@@ -38,6 +38,33 @@ final class CommandParsingTests: XCTestCase {
         XCTAssertEqual(command.duration, "2h")
     }
 
+    func testAlwaysActiveModeCanBeOmittedOrProvidedByAlias() throws {
+        XCTAssertNil(try AlwaysActiveStart.parse([]).mode)
+        XCTAssertEqual(try AlwaysActiveStart.parse(["m"]).mode, .mouse)
+        XCTAssertEqual(try AlwaysActiveStart.parse(["k"]).mode, .keyboard)
+    }
+
+    func testSavedModeIsUsedOnlyWhenNoExplicitModeIsProvided() {
+        let settings = WakeSettings(defaultAlwaysActiveMode: .mouse)
+
+        XCTAssertEqual(resolveAlwaysActiveMode(nil, settings: settings), .mouse)
+        XCTAssertEqual(resolveAlwaysActiveMode(.keyboard, settings: settings), .keyboard)
+        XCTAssertEqual(settings.defaultAlwaysActiveMode, .mouse)
+    }
+
+    func testStartAllModeCanBeOmittedOrProvidedByAlias() throws {
+        XCTAssertNil(try Start.parse(["--all"]).mode)
+        XCTAssertEqual(try Start.parse(["--all", "--mode", "m"]).mode, .mouse)
+        XCTAssertEqual(try Start.parse(["--all", "--mode", "k"]).mode, .keyboard)
+    }
+
+    func testSettingsModeSetAcceptsFullNamesAndAliases() throws {
+        XCTAssertEqual(try SettingsModeSet.parse(["mouse"]).mode, .mouse)
+        XCTAssertEqual(try SettingsModeSet.parse(["m"]).mode, .mouse)
+        XCTAssertEqual(try SettingsModeSet.parse(["keyboard"]).mode, .keyboard)
+        XCTAssertEqual(try SettingsModeSet.parse(["k"]).mode, .keyboard)
+    }
+
     func testSettingsClearParsesForceConfirmationBypass() throws {
         let command = try SettingsClear.parse(["--force"])
 

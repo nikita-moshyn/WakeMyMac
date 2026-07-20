@@ -7,7 +7,7 @@
 - Prevent macOS from sleeping with configurable wake sessions.
 - Schedule sessions for specified durations (e.g., "1h", "120m") or run indefinitely.
 - Run Wake and Always Active together for one shared duration.
-- Customize the Always Active Inactivity interval and shared named duration presets.
+- Customize the Always Active default mode, Inactivity interval, and shared named duration presets.
 - Start, stop, and check the status of a wake session.
 - Use a guided terminal interface powered by [Noora](https://github.com/tuist/Noora).
 - Integrated daemon mode to maintain an active session in the background.
@@ -95,9 +95,10 @@ Named presets can be selected explicitly:
 wake start --preset Workday
 ```
 
-Start Wake and Always Active together with `--all` (or `-a`). Keyboard mode is the default; use `--mode mouse` when preferred:
+Start Wake and Always Active together with `--all` (or `-a`). When `--mode` is omitted, Always Active uses the configured default mode. An explicit mode overrides the default for that session only:
 
 ```bash
+wake start 8h --all
 wake start 8h --all --mode mouse
 wake start --all --preset Workday --mode keyboard
 ```
@@ -131,7 +132,7 @@ This displays the start time of the session and any remaining time if a duration
 
 ### Always Active Sessions
 
-Always Active simulates input after the configured Inactivity interval without keyboard or mouse activity. The default interval is four minutes, and keyboard mode is used by default:
+Always Active simulates input after the configured Inactivity interval without keyboard or mouse activity. The default interval is four minutes. Keyboard is the initial default mode, and `wake aa start` uses whichever default is currently configured:
 
 ```bash
 wake aa start
@@ -139,7 +140,7 @@ wake aa start keyboard
 wake aa start k
 ```
 
-To move the cursor by one unit in a random direction instead, start the session in mouse mode:
+Keyboard mode presses and releases Shift, keeps the pointer still, and does not type text. It is recommended for most setups. Mouse mode moves the cursor by one unit and can be useful if keyboard activity does not prevent dimming, though it may affect hover-sensitive interfaces:
 
 ```bash
 wake aa start mouse
@@ -153,9 +154,9 @@ wake aa start keyboard --duration 2h
 wake aa start mouse --preset Workday
 ```
 
-Only one Always Active session can run at a time. Stop the current session before changing modes, or use `wake aa start <mode> --force` to replace it. Use `wake aa status` to see the active mode.
+Only one Always Active session can run at a time. Stop the current session before changing modes, or use `wake aa start <mode> --force` to replace it. Supplying a mode overrides the saved default for that session without changing the setting. Use `wake aa status` to see the active mode.
 
-`wake aa status` reports the selected mode, time remaining, and the Inactivity interval captured when the session started. Changing settings does not alter an already running daemon; restart Always Active to apply the new interval.
+`wake aa status` reports the selected mode, time remaining, and the Inactivity interval captured when the session started. Changing the default mode or interval does not alter an already running daemon; restart Always Active to apply updated settings.
 
 ### Settings and Duration Presets
 
@@ -167,9 +168,14 @@ wake settings interval show
 wake settings interval set 3m45s
 wake settings interval set "3m 45s"
 wake settings interval reset
+wake settings mode show
+wake settings mode set mouse
+wake settings mode reset
 ```
 
 The Inactivity interval accepts hours, minutes, and seconds in descending unit order, including compact values such as `15s`, `3m30s`, and `1h30m15s`. Quote values that contain spaces. Seconds are intentionally limited to this setting; session durations and named preset durations continue to accept hours and minutes only.
+
+The interactive mode picker remains available for every Always Active and Start All session, with the saved default preselected. `wake settings mode set` accepts `keyboard`/`k` and `mouse`/`m`; resetting restores Keyboard. Picking or passing another mode for one session does not change the saved default.
 
 Timed duration presets are fully editable. Indefinite and Custom remain available as fixed picker options:
 
@@ -182,7 +188,7 @@ wake settings presets remove "Office day"
 wake settings presets reset --force
 ```
 
-Preset names are matched case-insensitively. Quote names containing spaces. The initial picker contains 1h through 8h; resetting presets restores that list.
+Preset names are matched case-insensitively. Quote names containing spaces. The initial picker contains 1h, 4h, and 8h; resetting presets restores that list.
 
 To remove every saved WakeMyMac file, select **Remove all saved data** in Settings or use:
 
@@ -207,7 +213,7 @@ WakeMyMac keeps its local runtime state in separate JSON files inside `~/.wake/`
 
 - `~/.wake/wakeSession` for a standard wake session.
 - `~/.wake/alwaysActiveSession` for an always-active session.
-- `~/.wake/wakeConfig` for the Inactivity interval and duration presets after settings are customized.
+- `~/.wake/wakeConfig` for the Inactivity interval, default Always Active mode, and duration presets after settings are customized.
 
 The always-active session file records its selected mode, duration, and startup Inactivity interval for status output. The daemon receives a snapshot of those values through its launch arguments and does not read live configuration changes.
 

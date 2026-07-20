@@ -19,7 +19,7 @@ struct SettingsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "settings",
         abstract: "View and customize WakeMyMac settings.",
-        subcommands: [SettingsShow.self, SettingsInterval.self, SettingsPresets.self, SettingsClear.self]
+        subcommands: [SettingsShow.self, SettingsInterval.self, SettingsMode.self, SettingsPresets.self, SettingsClear.self]
     )
 
     func run() throws {
@@ -49,6 +49,7 @@ struct SettingsShow: ParsableCommand {
     func run() throws {
         let settings = try SettingsManager.current.load()
         cprint("Inactivity interval: \(formatInactivityInterval(settings.inactivityInterval))")
+        cprint("Default Always Active mode: \(settings.defaultAlwaysActiveMode.rawValue)")
         printPresets(settings.durationPresets)
     }
 }
@@ -95,6 +96,48 @@ struct SettingsIntervalReset: ParsableCommand {
     func run() throws {
         try SettingsManager.current.resetInactivityInterval()
         cprint("Inactivity interval reset to 4m. It will apply to the next Always Active session.", .success)
+    }
+}
+
+struct SettingsMode: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "mode",
+        abstract: "Manage the default Always Active mode.",
+        subcommands: [SettingsModeShow.self, SettingsModeSet.self, SettingsModeReset.self]
+    )
+
+    func run() throws {
+        throw CleanExit.helpRequest(self)
+    }
+}
+
+struct SettingsModeShow: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "show", abstract: "Show the default Always Active mode.")
+
+    func run() throws {
+        let mode = try SettingsManager.current.load().defaultAlwaysActiveMode
+        cprint("Default Always Active mode: \(mode.rawValue)")
+    }
+}
+
+struct SettingsModeSet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "set", abstract: "Set the default Always Active mode.")
+
+    @Argument(help: "Default mode: 'keyboard'/'k' or 'mouse'/'m'.")
+    var mode: AlwaysActiveMode
+
+    func run() throws {
+        try SettingsManager.current.setDefaultAlwaysActiveMode(mode)
+        cprint("Default Always Active mode set to \(mode.rawValue). It will apply to future sessions.", .success)
+    }
+}
+
+struct SettingsModeReset: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "reset", abstract: "Reset the default Always Active mode to keyboard.")
+
+    func run() throws {
+        try SettingsManager.current.resetDefaultAlwaysActiveMode()
+        cprint("Default Always Active mode reset to keyboard. It will apply to future sessions.", .success)
     }
 }
 
@@ -191,18 +234,18 @@ struct SettingsPresetsRemove: ParsableCommand {
 }
 
 struct SettingsPresetsReset: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "reset", abstract: "Restore the default 1h through 8h presets.")
+    static let configuration = CommandConfiguration(commandName: "reset", abstract: "Restore the default 1h, 4h, and 8h presets.")
 
     @Flag(name: .shortAndLong, help: "Reset without confirmation.")
     var force = false
 
     func run() throws {
-        if !force, !askForConfirmation("Replace all timed presets with the default 1h through 8h list?") {
+        if !force, !askForConfirmation("Replace all timed presets with the default 1h, 4h, and 8h list?") {
             cprint("Operation canceled. Duration presets were not changed.")
             return
         }
         try SettingsManager.current.resetPresets()
-        cprint("Duration presets reset to 1h through 8h.", .success)
+        cprint("Duration presets reset to 1h, 4h, and 8h.", .success)
     }
 }
 

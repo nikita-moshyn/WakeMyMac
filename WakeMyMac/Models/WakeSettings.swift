@@ -28,22 +28,38 @@ struct WakeDurationPreset: Codable, Equatable, Identifiable {
 
 struct WakeSettings: Codable, Equatable {
     static let defaultInactivityInterval: TimeInterval = 4 * 60
+    static let defaultAlwaysActiveMode: AlwaysActiveMode = .keyboard
 
     var inactivityInterval: TimeInterval
+    var defaultAlwaysActiveMode: AlwaysActiveMode
     var durationPresets: [WakeDurationPreset]
 
-    init(inactivityInterval: TimeInterval = Self.defaultInactivityInterval, durationPresets: [WakeDurationPreset] = Self.defaultDurationPresets) {
+    init(inactivityInterval: TimeInterval = Self.defaultInactivityInterval, defaultAlwaysActiveMode: AlwaysActiveMode = Self.defaultAlwaysActiveMode, durationPresets: [WakeDurationPreset] = Self.defaultDurationPresets) {
         self.inactivityInterval = inactivityInterval
+        self.defaultAlwaysActiveMode = defaultAlwaysActiveMode
         self.durationPresets = durationPresets
     }
 
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inactivityInterval = try container.decode(TimeInterval.self, forKey: .inactivityInterval)
+        defaultAlwaysActiveMode = try container.decodeIfPresent(AlwaysActiveMode.self, forKey: .defaultAlwaysActiveMode) ?? Self.defaultAlwaysActiveMode
+        durationPresets = try container.decode([WakeDurationPreset].self, forKey: .durationPresets)
+    }
+
     static var defaultDurationPresets: [WakeDurationPreset] {
-        [1,4,8].map { hour in
+        [1, 4, 8].map { hour in
             WakeDurationPreset(
                 id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", hour))!,
                 name: "\(hour)h",
                 duration: TimeInterval(hour * 60 * 60)
             )
         }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case inactivityInterval
+        case defaultAlwaysActiveMode
+        case durationPresets
     }
 }

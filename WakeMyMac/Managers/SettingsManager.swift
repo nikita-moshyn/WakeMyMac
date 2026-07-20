@@ -45,6 +45,18 @@ final class SettingsManager {
         try storage.saveSettings(settings)
     }
 
+    func setDefaultAlwaysActiveMode(_ mode: AlwaysActiveMode) throws {
+        var settings = try load()
+        settings.defaultAlwaysActiveMode = mode
+        try storage.saveSettings(settings)
+    }
+
+    func resetDefaultAlwaysActiveMode() throws {
+        var settings = (try? load()) ?? WakeSettings()
+        settings.defaultAlwaysActiveMode = WakeSettings.defaultAlwaysActiveMode
+        try storage.saveSettings(settings)
+    }
+
     func addPreset(name: String, duration: TimeInterval) throws {
         var settings = try load()
         let normalizedName = try validatedPresetName(name, excluding: nil, in: settings)

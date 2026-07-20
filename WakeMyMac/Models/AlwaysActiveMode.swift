@@ -33,3 +33,7 @@ enum AlwaysActiveMode: String, Codable, CaseIterable, ExpressibleByArgument {
         ["keyboard", "k", "mouse", "m"]
     }
 }
+
+func resolveAlwaysActiveMode(_ explicitMode: AlwaysActiveMode?, settings: WakeSettings) -> AlwaysActiveMode {
+    explicitMode ?? settings.defaultAlwaysActiveMode
+}
