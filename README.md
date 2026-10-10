@@ -62,9 +62,11 @@ wake
 
 WakeMyMac opens in an isolated full-screen terminal buffer, so navigation and status updates never add prompt history. When the interface closes, the previous terminal screen is restored exactly as it was.
 
-Use the up and down arrows (or `k` and `j`) to move, press Return to select, `Esc` to go back, and Ctrl-C to quit. Wake and Always Active timing updates live in the header. Duration controls, settings, details, confirmations, custom input, Accessibility setup, and Always Active modes all replace content inside the same frame.
+Use the up and down arrows (or `k` and `j`) to move, press Return to select, `Esc` to go back, and Ctrl-C to quit. The pointer stays on the selected session action when Start changes to Stop, and returns to the selected row when you leave a submenu. Wake and Always Active timing updates live in the header. Duration controls, settings, details, confirmations, custom input, Accessibility setup, and Always Active modes all replace content inside the same frame.
 
 The main menu can start Wake, Always Active, or both sessions together. All three flows share the configured duration picker: Indefinite, named timed presets, and a one-off Custom duration.
+
+By default, the main menu has five rows: a Start or Stop action for Wake, a Start or Stop action for Always Active, Start or Stop All, Settings, and Exit. A session's Start action becomes Stop while it is running. When either session is running, the combined action is Stop All; start the other session with its own Start action. Always Active stops directly from the main menu.
 
 All direct commands remain available for scripts and experienced users. When input or output is redirected, running `wake` without a subcommand continues to print command help instead of opening an interactive prompt.
 
@@ -160,7 +162,19 @@ Only one Always Active session can run at a time. Stop the current session befor
 
 ### Settings and Duration Presets
 
-Open **Settings** from the interactive main menu, or use the equivalent direct commands:
+Open **Settings** from the interactive main menu to customize session behavior.
+
+**Default wake duration** and **Default Always Active duration** each offer **Ask every time (default)**, **Indefinite**, and your current named duration presets. The two choices are independent. Ask every time opens the duration picker on each start. Selecting Indefinite or a preset makes the corresponding **Start wake session** or **Start Always Active** action start immediately with that duration. Always Active uses the saved default mode without another prompt. Accessibility setup still appears when permission is required.
+
+**Start all sessions** uses the Wake default for one shared duration across both services, or prompts when that default is Ask every time. Changing the Always Active duration does not change the Wake or Start All duration.
+
+Both choices are saved between launches. Existing configurations with one shared default initially use that choice for both settings. Renaming or editing a selected preset updates the defaults automatically; removing it returns any affected default to Ask every time. Resetting presets also returns an affected default to Ask every time if its selected preset no longer exists. Direct commands keep their explicit duration and preset options.
+
+**Show session change controls** defaults to Off. Turn it on to add **Change wake duration**, **Change Always Active**, and **Restart all sessions** for running sessions. These actions open the duration and mode pickers; Always Active changes open the picker directly. The setting is saved between launches and does not alter active sessions.
+
+**Confirm before stopping** is an On/Off toggle in Settings and defaults to Off. With it off, selecting **Stop wake session**, **Stop Always Active**, or **Stop all sessions** stops immediately. Turn it on to ask for confirmation first. The choice is saved between launches and applies immediately to the interactive menu.
+
+You can also view settings and customize Always Active defaults with direct commands:
 
 ```bash
 wake settings show
@@ -175,7 +189,7 @@ wake settings mode reset
 
 The Inactivity interval accepts hours, minutes, and seconds in descending unit order, including compact values such as `15s`, `3m30s`, and `1h30m15s`. Quote values that contain spaces. Seconds are intentionally limited to this setting; session durations and named preset durations continue to accept hours and minutes only.
 
-The interactive mode picker remains available for every Always Active and Start All session, with the saved default preselected. `wake settings mode set` accepts `keyboard`/`k` and `mouse`/`m`; resetting restores Keyboard. Picking or passing another mode for one session does not change the saved default.
+The interactive mode picker remains available when choosing a duration or changing an active session, with the saved default preselected. Starting with a saved default duration uses the saved mode directly. `wake settings mode set` accepts `keyboard`/`k` and `mouse`/`m`; resetting restores Keyboard. Picking or passing another mode for one session does not change the saved default.
 
 Timed duration presets are fully editable. Indefinite and Custom remain available as fixed picker options:
 
@@ -213,7 +227,7 @@ WakeMyMac keeps its local runtime state in separate JSON files inside `~/.wake/`
 
 - `~/.wake/wakeSession` for a standard wake session.
 - `~/.wake/alwaysActiveSession` for an always-active session.
-- `~/.wake/wakeConfig` for the Inactivity interval, default Always Active mode, and duration presets after settings are customized.
+- `~/.wake/wakeConfig` for the Inactivity interval, default Always Active mode, separate Wake and Always Active default durations, confirmation and menu toggles, and duration presets after settings are customized.
 
 The always-active session file records its selected mode, duration, and startup Inactivity interval for status output. The daemon receives a snapshot of those values through its launch arguments and does not read live configuration changes.
 

@@ -26,17 +26,31 @@ struct WakeDurationPreset: Codable, Equatable, Identifiable {
     }
 }
 
+enum WakeDefaultDuration: Codable, Equatable {
+    case interactive
+    case indefinite
+    case preset(UUID)
+}
+
 struct WakeSettings: Codable, Equatable {
     static let defaultInactivityInterval: TimeInterval = 4 * 60
     static let defaultAlwaysActiveMode: AlwaysActiveMode = .keyboard
 
     var inactivityInterval: TimeInterval
     var defaultAlwaysActiveMode: AlwaysActiveMode
+    var defaultSessionDuration: WakeDefaultDuration
+    var defaultAlwaysActiveDuration: WakeDefaultDuration
+    var confirmBeforeStopping: Bool
+    var showSessionChangeControls: Bool
     var durationPresets: [WakeDurationPreset]
 
-    init(inactivityInterval: TimeInterval = Self.defaultInactivityInterval, defaultAlwaysActiveMode: AlwaysActiveMode = Self.defaultAlwaysActiveMode, durationPresets: [WakeDurationPreset] = Self.defaultDurationPresets) {
+    init(inactivityInterval: TimeInterval = Self.defaultInactivityInterval, defaultAlwaysActiveMode: AlwaysActiveMode = Self.defaultAlwaysActiveMode, defaultSessionDuration: WakeDefaultDuration = .interactive, defaultAlwaysActiveDuration: WakeDefaultDuration = .interactive, confirmBeforeStopping: Bool = false, showSessionChangeControls: Bool = false, durationPresets: [WakeDurationPreset] = Self.defaultDurationPresets) {
         self.inactivityInterval = inactivityInterval
         self.defaultAlwaysActiveMode = defaultAlwaysActiveMode
+        self.defaultSessionDuration = defaultSessionDuration
+        self.defaultAlwaysActiveDuration = defaultAlwaysActiveDuration
+        self.confirmBeforeStopping = confirmBeforeStopping
+        self.showSessionChangeControls = showSessionChangeControls
         self.durationPresets = durationPresets
     }
 
@@ -44,6 +58,11 @@ struct WakeSettings: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         inactivityInterval = try container.decode(TimeInterval.self, forKey: .inactivityInterval)
         defaultAlwaysActiveMode = try container.decodeIfPresent(AlwaysActiveMode.self, forKey: .defaultAlwaysActiveMode) ?? Self.defaultAlwaysActiveMode
+        defaultSessionDuration = try container.decodeIfPresent(WakeDefaultDuration.self, forKey: .defaultSessionDuration) ?? .interactive
+        // Preserve the previous shared choice when upgrading an existing configuration.
+        defaultAlwaysActiveDuration = try container.decodeIfPresent(WakeDefaultDuration.self, forKey: .defaultAlwaysActiveDuration) ?? defaultSessionDuration
+        confirmBeforeStopping = try container.decodeIfPresent(Bool.self, forKey: .confirmBeforeStopping) ?? false
+        showSessionChangeControls = try container.decodeIfPresent(Bool.self, forKey: .showSessionChangeControls) ?? false
         durationPresets = try container.decode([WakeDurationPreset].self, forKey: .durationPresets)
     }
 
@@ -60,6 +79,10 @@ struct WakeSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case inactivityInterval
         case defaultAlwaysActiveMode
+        case defaultSessionDuration
+        case defaultAlwaysActiveDuration
+        case confirmBeforeStopping
+        case showSessionChangeControls
         case durationPresets
     }
 }

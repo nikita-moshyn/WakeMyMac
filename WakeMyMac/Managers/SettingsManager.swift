@@ -25,7 +25,8 @@ final class SettingsManager {
     }
 
     func load() throws -> WakeSettings {
-        let settings = try storage.loadSettings() ?? WakeSettings()
+        var settings = try storage.loadSettings() ?? WakeSettings()
+        resetMissingDefaultDuration(in: &settings)
         try validate(settings)
         return settings
     }
@@ -54,6 +55,32 @@ final class SettingsManager {
     func resetDefaultAlwaysActiveMode() throws {
         var settings = (try? load()) ?? WakeSettings()
         settings.defaultAlwaysActiveMode = WakeSettings.defaultAlwaysActiveMode
+        try storage.saveSettings(settings)
+    }
+
+    func setConfirmBeforeStopping(_ enabled: Bool) throws {
+        var settings = try load()
+        settings.confirmBeforeStopping = enabled
+        try storage.saveSettings(settings)
+    }
+
+    func setShowSessionChangeControls(_ enabled: Bool) throws {
+        var settings = try load()
+        settings.showSessionChangeControls = enabled
+        try storage.saveSettings(settings)
+    }
+
+    func setDefaultSessionDuration(_ duration: WakeDefaultDuration) throws {
+        var settings = try load()
+        try validateDefaultDuration(duration, in: settings)
+        settings.defaultSessionDuration = duration
+        try storage.saveSettings(settings)
+    }
+
+    func setDefaultAlwaysActiveDuration(_ duration: WakeDefaultDuration) throws {
+        var settings = try load()
+        try validateDefaultDuration(duration, in: settings)
+        settings.defaultAlwaysActiveDuration = duration
         try storage.saveSettings(settings)
     }
 
@@ -114,6 +141,7 @@ final class SettingsManager {
             throw SettingsManagerError.presetNotFound(name)
         }
         settings.durationPresets.remove(at: index)
+        resetMissingDefaultDuration(in: &settings)
         try storage.saveSettings(settings)
     }
 
@@ -123,12 +151,14 @@ final class SettingsManager {
             throw SettingsManagerError.presetNotFound(id.uuidString)
         }
         settings.durationPresets.remove(at: index)
+        resetMissingDefaultDuration(in: &settings)
         try storage.saveSettings(settings)
     }
 
     func resetPresets() throws {
         var settings = (try? load()) ?? WakeSettings()
         settings.durationPresets = WakeSettings.defaultDurationPresets
+        resetMissingDefaultDuration(in: &settings)
         try storage.saveSettings(settings)
     }
 
@@ -143,6 +173,21 @@ final class SettingsManager {
     private func presetIndex(named name: String, in settings: WakeSettings) -> Int? {
         let lookupName = normalizedLookupName(name)
         return settings.durationPresets.firstIndex { normalizedLookupName($0.name) == lookupName }
+    }
+
+    private func resetMissingDefaultDuration(in settings: inout WakeSettings) {
+        if case .preset(let id) = settings.defaultSessionDuration, !settings.durationPresets.contains(where: { $0.id == id }) {
+            settings.defaultSessionDuration = .interactive
+        }
+        if case .preset(let id) = settings.defaultAlwaysActiveDuration, !settings.durationPresets.contains(where: { $0.id == id }) {
+            settings.defaultAlwaysActiveDuration = .interactive
+        }
+    }
+
+    private func validateDefaultDuration(_ duration: WakeDefaultDuration, in settings: WakeSettings) throws {
+        if case .preset(let id) = duration, !settings.durationPresets.contains(where: { $0.id == id }) {
+            throw SettingsManagerError.presetNotFound(id.uuidString)
+        }
     }
 
     private func validatedPresetName(_ name: String, excluding excludedID: UUID?, in settings: WakeSettings) throws -> String {

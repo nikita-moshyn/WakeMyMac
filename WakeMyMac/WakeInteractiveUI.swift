@@ -24,9 +24,10 @@ final class WakeInteractiveUI {
     private let dataRemovalManager: DataRemovalManager
     private let terminalSession: WakeTerminalSession
     private let renderer: WakeFullScreenRenderer
-    private var state = WakeUIState()
+    private let isAccessibilityEnabled: () -> Bool
+    private(set) var state = WakeUIState()
 
-    init(wakeManager: WakeManager = .current, alwaysActiveManager: AlwaysActiveManager = .current, settingsManager: SettingsManager = .current, allSessionsManager: AllSessionsManager? = nil, dataRemovalManager: DataRemovalManager = .current, terminalSession: WakeTerminalSession = WakeTerminalSession(), renderer: WakeFullScreenRenderer = WakeFullScreenRenderer()) {
+    init(wakeManager: WakeManager = .current, alwaysActiveManager: AlwaysActiveManager = .current, settingsManager: SettingsManager = .current, allSessionsManager: AllSessionsManager? = nil, dataRemovalManager: DataRemovalManager = .current, terminalSession: WakeTerminalSession = WakeTerminalSession(), renderer: WakeFullScreenRenderer = WakeFullScreenRenderer(), isAccessibilityEnabled: @escaping () -> Bool = A11yService.isAccessibilityEnabled) {
         self.wakeManager = wakeManager
         self.alwaysActiveManager = alwaysActiveManager
         self.settingsManager = settingsManager
@@ -34,6 +35,7 @@ final class WakeInteractiveUI {
         self.dataRemovalManager = dataRemovalManager
         self.terminalSession = terminalSession
         self.renderer = renderer
+        self.isAccessibilityEnabled = isAccessibilityEnabled
     }
 
     func run() throws {
@@ -56,8 +58,7 @@ final class WakeInteractiveUI {
                 } catch {
                     state.showNotification(error.localizedDescription, kind: .error, now: now)
                 }
-                state.reconcile(with: snapshot)
-                state.normalizeSelection(itemCount: itemCount(for: state.screen, snapshot: snapshot))
+                normalizeSelection(snapshot: snapshot)
                 terminalSession.render(renderer.render(state: state, snapshot: snapshot, size: size, now: now))
                 lastRenderedSecond = currentSecond
                 lastSize = size
@@ -79,11 +80,13 @@ final class WakeInteractiveUI {
         return WakeUIStatusSnapshot(wakeSession: try wakeManager.status(), alwaysActiveSession: try alwaysActiveManager.status(), settings: try settingsManager.load())
     }
 
-    private func handle(key: WakeTerminalKey, snapshot: WakeUIStatusSnapshot, now: Date) throws {
+    func handle(key: WakeTerminalKey, snapshot: WakeUIStatusSnapshot, now: Date) throws {
         if key == .interrupt {
             state.isRunning = false
             return
         }
+
+        normalizeSelection(snapshot: snapshot)
 
         if case .textInput(let input) = state.screen {
             try handleTextInputKey(key, input: input, snapshot: snapshot, now: now)
@@ -102,9 +105,17 @@ final class WakeInteractiveUI {
         case .enter:
             try selectCurrentItem(snapshot: snapshot, now: now)
         case .escape:
-            navigateBack(snapshot: snapshot)
+            navigateBack()
         default:
             break
+        }
+    }
+
+    func normalizeSelection(snapshot: WakeUIStatusSnapshot) {
+        if state.screen == .home {
+            state.normalizeHomeSelection(actions: WakeUIContent.homeItems(snapshot: snapshot).map(\.action))
+        } else {
+            state.normalizeSelection(itemCount: itemCount(for: state.screen, snapshot: snapshot))
         }
     }
 
@@ -184,49 +195,68 @@ final class WakeInteractiveUI {
     private func selectCurrentItem(snapshot: WakeUIStatusSnapshot, now: Date) throws {
         switch state.screen {
         case .home:
-            try selectHomeItem(snapshot: snapshot)
+            try selectHomeItem(snapshot: snapshot, now: now)
         case .durations(let target):
             try selectDuration(target: target, snapshot: snapshot)
-        case .alwaysActive:
-            selectAlwaysActiveItem()
         case .alwaysActiveMode(let target, let option):
             try selectAlwaysActiveMode(target: target, option: option, snapshot: snapshot)
         case .settings:
-            try selectSettingsItem(snapshot: snapshot)
+            try selectSettingsItem(snapshot: snapshot, now: now)
         case .defaultAlwaysActiveMode:
             try selectDefaultAlwaysActiveMode(now: now)
+        case .defaultSessionDuration(let target):
+            try selectDefaultSessionDuration(target: target, snapshot: snapshot, now: now)
         case .presets:
             try selectPresetItem(snapshot: snapshot, now: now)
         case .presetActions(let id):
             try selectPresetAction(id: id, snapshot: snapshot, now: now)
         case .confirmation(let confirmation):
-            try resolveConfirmation(confirmation, snapshot: snapshot, now: now)
+            try resolveConfirmation(confirmation, now: now)
         case .textInput:
             break
         }
     }
 
-    private func selectHomeItem(snapshot: WakeUIStatusSnapshot) throws {
+    private func selectHomeItem(snapshot: WakeUIStatusSnapshot, now: Date) throws {
         let items = WakeUIContent.homeItems(snapshot: snapshot)
         guard items.indices.contains(state.selectedIndex) else { return }
 
         switch items[state.selectedIndex].action {
-        case .manageWake:
+        case .startWake:
+            try startWithDefaultDuration(target: .wake, snapshot: snapshot)
+        case .changeWakeDuration:
             state.show(.durations(.wake))
         case .stopWake:
-            state.show(.confirmation(.stopWake))
+            try requestStop(.wake, snapshot: snapshot, now: now)
         case .startAll:
+            try startWithDefaultDuration(target: .all, snapshot: snapshot)
+        case .restartAll:
             state.show(.durations(.all))
         case .startAlwaysActive:
+            try startWithDefaultDuration(target: .alwaysActive, snapshot: snapshot)
+        case .changeAlwaysActive:
             state.show(.durations(.alwaysActive))
-        case .manageAlwaysActive:
-            state.show(.alwaysActive)
+        case .stopAlwaysActive:
+            try requestStop(.alwaysActive, snapshot: snapshot, now: now)
         case .stopAll:
-            state.show(.confirmation(.stopAll))
+            try requestStop(.all, snapshot: snapshot, now: now)
         case .settings:
             state.show(.settings)
         case .exit:
             state.isRunning = false
+        }
+    }
+
+    private func startWithDefaultDuration(target: WakeDurationTarget, snapshot: WakeUIStatusSnapshot) throws {
+        guard let option = WakeUIContent.defaultDurationOption(settings: snapshot.settings, target: target) else {
+            state.show(.durations(target))
+            return
+        }
+        switch target {
+        case .wake:
+            try selectDurationOption(option, target: .wake, snapshot: snapshot)
+        case .alwaysActive, .all:
+            try startInputSession(target: target, option: option, mode: snapshot.settings.defaultAlwaysActiveMode, snapshot: snapshot)
         }
     }
 
@@ -241,7 +271,7 @@ final class WakeInteractiveUI {
             state.textInput = ""
             state.show(.textInput(.customDuration(target)))
         case .back:
-            state.show(returnScreen(for: target, snapshot: snapshot))
+            state.show(.home)
         }
     }
 
@@ -258,51 +288,41 @@ final class WakeInteractiveUI {
         }
     }
 
-    private func selectAlwaysActiveItem() {
-        let items = WakeUIContent.alwaysActiveItems
-        guard items.indices.contains(state.selectedIndex) else { return }
-
-        switch items[state.selectedIndex].action {
-        case .configure:
-            state.show(.durations(.alwaysActive))
-        case .stop:
-            state.show(.confirmation(.stopAlwaysActive))
-        case .back:
-            state.show(.home)
-        }
-    }
-
     private func selectAlwaysActiveMode(target: WakeDurationTarget, option: WakeDurationOption, snapshot: WakeUIStatusSnapshot) throws {
         let items = WakeUIContent.modeItems
         guard items.indices.contains(state.selectedIndex) else { return }
         switch items[state.selectedIndex].action {
         case .mode(let mode):
-            guard A11yService.isAccessibilityEnabled() else {
-                state.show(.confirmation(.openAccessibility(target)))
-                return
-            }
-            switch target {
-            case .alwaysActive:
-                if snapshot.alwaysActiveSession == nil {
-                    try startAlwaysActive(option: option, mode: mode, replacingActiveSession: false)
-                } else {
-                    state.show(.confirmation(.replaceAlwaysActive(option, mode)))
-                }
-            case .all:
-                if snapshot.wakeSession == nil, snapshot.alwaysActiveSession == nil {
-                    try startAllSessions(option: option, mode: mode, replacingActiveSessions: false)
-                } else {
-                    state.show(.confirmation(.replaceAll(option, mode)))
-                }
-            case .wake:
-                break
-            }
+            try startInputSession(target: target, option: option, mode: mode, snapshot: snapshot)
         case .back:
             state.show(.durations(target))
         }
     }
 
-    private func selectSettingsItem(snapshot: WakeUIStatusSnapshot) throws {
+    private func startInputSession(target: WakeDurationTarget, option: WakeDurationOption, mode: AlwaysActiveMode, snapshot: WakeUIStatusSnapshot) throws {
+        guard isAccessibilityEnabled() else {
+            state.show(.confirmation(.openAccessibility(target)))
+            return
+        }
+        switch target {
+        case .alwaysActive:
+            if snapshot.alwaysActiveSession == nil {
+                try startAlwaysActive(option: option, mode: mode, replacingActiveSession: false)
+            } else {
+                state.show(.confirmation(.replaceAlwaysActive(option, mode)))
+            }
+        case .all:
+            if snapshot.wakeSession == nil, snapshot.alwaysActiveSession == nil {
+                try startAllSessions(option: option, mode: mode, replacingActiveSessions: false)
+            } else {
+                state.show(.confirmation(.replaceAll(option, mode)))
+            }
+        case .wake:
+            break
+        }
+    }
+
+    private func selectSettingsItem(snapshot: WakeUIStatusSnapshot, now: Date) throws {
         let items = WakeUIContent.settingsItems(settings: snapshot.settings)
         guard items.indices.contains(state.selectedIndex) else { return }
         switch items[state.selectedIndex].action {
@@ -311,12 +331,43 @@ final class WakeInteractiveUI {
             state.show(.textInput(.inactivityInterval))
         case .defaultAlwaysActiveMode:
             state.show(.defaultAlwaysActiveMode, selectedIndex: WakeUIContent.modeSelectionIndex(for: snapshot.settings.defaultAlwaysActiveMode))
+        case .defaultSessionDuration:
+            state.show(.defaultSessionDuration(.wake), selectedIndex: WakeUIContent.defaultDurationSelectionIndex(settings: snapshot.settings))
+        case .defaultAlwaysActiveDuration:
+            state.show(.defaultSessionDuration(.alwaysActive), selectedIndex: WakeUIContent.defaultDurationSelectionIndex(settings: snapshot.settings, target: .alwaysActive))
         case .presets:
             state.show(.presets)
+        case .toggleStopConfirmation:
+            let enabled = !snapshot.settings.confirmBeforeStopping
+            try settingsManager.setConfirmBeforeStopping(enabled)
+            state.showNotification("Confirmation before stopping turned \(enabled ? "on" : "off").", kind: .success, now: now)
+        case .toggleSessionChangeControls:
+            let enabled = !snapshot.settings.showSessionChangeControls
+            try settingsManager.setShowSessionChangeControls(enabled)
+            state.showNotification("Session change controls turned \(enabled ? "on" : "off").", kind: .success, now: now)
         case .clearData:
             state.show(.confirmation(.clearAllData))
         case .back:
             state.show(.home)
+        }
+    }
+
+    private func selectDefaultSessionDuration(target: WakeDurationTarget, snapshot: WakeUIStatusSnapshot, now: Date) throws {
+        let items = WakeUIContent.defaultDurationItems(settings: snapshot.settings, target: target)
+        guard items.indices.contains(state.selectedIndex) else { return }
+        switch items[state.selectedIndex].action {
+        case .duration(let duration):
+            if target == .alwaysActive {
+                try settingsManager.setDefaultAlwaysActiveDuration(duration)
+            } else {
+                try settingsManager.setDefaultSessionDuration(duration)
+            }
+            let settings = try settingsManager.load()
+            state.show(.settings)
+            let name = target == .alwaysActive ? "Always Active" : "wake"
+            state.showNotification("Default \(name) duration set to \(WakeUIContent.defaultDurationLabel(settings: settings, target: target)).", kind: .success, now: now)
+        case .back:
+            state.show(.settings)
         }
     }
 
@@ -376,13 +427,30 @@ final class WakeInteractiveUI {
         }
     }
 
-    private func resolveConfirmation(_ confirmation: WakeConfirmation, snapshot: WakeUIStatusSnapshot, now: Date) throws {
+    private func requestStop(_ target: WakeDurationTarget, snapshot: WakeUIStatusSnapshot, now: Date) throws {
+        let confirmation: WakeConfirmation = switch target {
+        case .wake: .stopWake
+        case .alwaysActive: .stopAlwaysActive
+        case .all: .stopAll
+        }
+        if snapshot.settings.confirmBeforeStopping {
+            state.show(.confirmation(confirmation))
+        } else {
+            try performConfirmedAction(confirmation, now: now)
+        }
+    }
+
+    private func resolveConfirmation(_ confirmation: WakeConfirmation, now: Date) throws {
         let items = WakeUIContent.confirmationItems(confirmation)
         guard items.indices.contains(state.selectedIndex), items[state.selectedIndex].action else {
-            state.show(returnScreen(for: confirmation, snapshot: snapshot))
+            state.show(returnScreen(for: confirmation))
             return
         }
 
+        try performConfirmedAction(confirmation, now: now)
+    }
+
+    private func performConfirmedAction(_ confirmation: WakeConfirmation, now: Date) throws {
         switch confirmation {
         case .stopWake:
             switch try wakeManager.stop() {
@@ -410,8 +478,8 @@ final class WakeInteractiveUI {
             try startAlwaysActive(option: option, mode: mode, replacingActiveSession: true)
         case .replaceAll(let option, let mode):
             try startAllSessions(option: option, mode: mode, replacingActiveSessions: true)
-        case .openAccessibility(let target):
-            state.show(returnScreen(for: target, snapshot: snapshot))
+        case .openAccessibility:
+            state.show(.home)
             if A11yService.openAccessibilitySettings() {
                 state.showNotification("Enable Terminal in Accessibility, then return here.", kind: .info, now: now)
             } else {
@@ -480,7 +548,7 @@ final class WakeInteractiveUI {
             state.show(.home)
             state.showNotification("Always Active started in \(mode.rawValue) mode.", kind: .success, now: Date())
         } catch {
-            state.show(replacingActiveSession ? .alwaysActive : .home)
+            state.show(replacingActiveSession ? .durations(.alwaysActive) : .home)
             throw error
         }
     }
@@ -497,17 +565,15 @@ final class WakeInteractiveUI {
         }
     }
 
-    private func navigateBack(snapshot: WakeUIStatusSnapshot) {
+    private func navigateBack() {
         switch state.screen {
         case .home:
             break
-        case .durations(let target):
-            state.show(returnScreen(for: target, snapshot: snapshot))
-        case .alwaysActive, .settings:
+        case .durations, .settings:
             state.show(.home)
         case .alwaysActiveMode(let target, _):
             state.show(.durations(target))
-        case .defaultAlwaysActiveMode:
+        case .defaultAlwaysActiveMode, .defaultSessionDuration:
             state.show(.settings)
         case .presets:
             state.show(.settings)
@@ -516,32 +582,27 @@ final class WakeInteractiveUI {
         case .textInput(let input):
             state.show(returnScreen(for: input))
         case .confirmation(let confirmation):
-            state.show(returnScreen(for: confirmation, snapshot: snapshot))
+            state.show(returnScreen(for: confirmation))
         }
     }
 
-    private func returnScreen(for confirmation: WakeConfirmation, snapshot: WakeUIStatusSnapshot) -> WakeUIScreen {
+    private func returnScreen(for confirmation: WakeConfirmation) -> WakeUIScreen {
         switch confirmation {
         case .replaceWake:
             .durations(.wake)
-        case .stopAlwaysActive, .replaceAlwaysActive:
-            .alwaysActive
-        case .openAccessibility(let target):
-            returnScreen(for: target, snapshot: snapshot)
+        case .replaceAlwaysActive:
+            .durations(.alwaysActive)
+        case .openAccessibility:
+            .home
         case .deletePreset:
             .presets
         case .resetPresets:
             .presets
         case .clearAllData:
             .settings
-        case .stopWake, .stopAll, .replaceAll:
+        case .stopWake, .stopAlwaysActive, .stopAll, .replaceAll:
             .home
         }
-    }
-
-    private func returnScreen(for target: WakeDurationTarget, snapshot: WakeUIStatusSnapshot) -> WakeUIScreen {
-        guard target == .alwaysActive, snapshot.alwaysActiveSession != nil else { return .home }
-        return .alwaysActive
     }
 
     private func returnScreen(for input: WakeTextInput) -> WakeUIScreen {
@@ -563,10 +624,10 @@ final class WakeInteractiveUI {
             return WakeUIContent.homeItems(snapshot: snapshot).count
         case .durations:
             return WakeUIContent.durationItems(settings: snapshot.settings).count
-        case .alwaysActive:
-            return WakeUIContent.alwaysActiveItems.count
         case .alwaysActiveMode, .defaultAlwaysActiveMode:
             return WakeUIContent.modeItems.count
+        case .defaultSessionDuration(let target):
+            return WakeUIContent.defaultDurationItems(settings: snapshot.settings, target: target).count
         case .settings:
             return WakeUIContent.settingsItems(settings: snapshot.settings).count
         case .presets:
@@ -633,12 +694,13 @@ struct WakeFullScreenRenderer {
             lines = menuLines(title: "What would you like to do?", items: WakeUIContent.homeItems(snapshot: snapshot), selectedIndex: state.selectedIndex, width: width, height: height)
         case .durations(let target):
             lines = menuLines(title: durationTitle(target: target, snapshot: snapshot), items: WakeUIContent.durationItems(settings: snapshot.settings), selectedIndex: state.selectedIndex, width: width, height: height)
-        case .alwaysActive:
-            lines = menuLines(title: "Always Active", items: WakeUIContent.alwaysActiveItems, selectedIndex: state.selectedIndex, width: width, height: height)
         case .alwaysActiveMode:
             lines = menuLines(title: "Choose Always Active mode", items: WakeUIContent.modeItems, selectedIndex: state.selectedIndex, width: width, height: height)
         case .defaultAlwaysActiveMode:
             lines = menuLines(title: "Default Always Active mode", items: WakeUIContent.modeItems, selectedIndex: state.selectedIndex, width: width, height: height)
+        case .defaultSessionDuration(let target):
+            let title = target == .alwaysActive ? "Default Always Active duration" : "Default wake duration"
+            lines = menuLines(title: title, items: WakeUIContent.defaultDurationItems(settings: snapshot.settings, target: target), selectedIndex: state.selectedIndex, width: width, height: height)
         case .settings:
             lines = menuLines(title: "Settings", items: WakeUIContent.settingsItems(settings: snapshot.settings), selectedIndex: state.selectedIndex, width: width, height: height)
         case .presets:
@@ -903,14 +965,26 @@ struct WakeUIState {
     var textInput = ""
     var notification: WakeNotification?
     var isRunning = true
+    private var rememberedSelections: [(screen: WakeUIScreen, index: Int)] = []
+    private var homeActions: [WakeHomeAction] = []
 
     mutating func show(_ screen: WakeUIScreen) {
+        switch self.screen {
+        case .home, .durations, .settings, .presets, .presetActions:
+            if let index = rememberedSelections.firstIndex(where: { $0.screen == self.screen }) {
+                rememberedSelections[index].index = selectedIndex
+            } else {
+                rememberedSelections.append((self.screen, selectedIndex))
+            }
+        default:
+            break
+        }
         self.screen = screen
         switch screen {
         case .confirmation(.stopAlwaysActive), .confirmation(.stopAll), .confirmation(.deletePreset), .confirmation(.resetPresets), .confirmation(.clearAllData):
             selectedIndex = 1
         default:
-            selectedIndex = 0
+            selectedIndex = rememberedSelections.first(where: { $0.screen == screen })?.index ?? 0
         }
     }
 
@@ -932,9 +1006,15 @@ struct WakeUIState {
         selectedIndex = min(max(selectedIndex, 0), itemCount - 1)
     }
 
-    mutating func reconcile(with snapshot: WakeUIStatusSnapshot) {
-        guard screen == .alwaysActive, snapshot.alwaysActiveSession == nil else { return }
-        show(.home)
+    mutating func normalizeHomeSelection(actions: [WakeHomeAction]) {
+        if homeActions != actions, homeActions.indices.contains(selectedIndex) {
+            let previousAction = homeActions[selectedIndex]
+            if let index = actions.firstIndex(of: previousAction) ?? actions.firstIndex(where: { $0.primaryAction == previousAction.primaryAction }) {
+                selectedIndex = index
+            }
+        }
+        normalizeSelection(itemCount: actions.count)
+        homeActions = actions
     }
 
     mutating func showNotification(_ message: String, kind: WakeNotification.Kind, now: Date) {
@@ -950,9 +1030,9 @@ struct WakeUIState {
 enum WakeUIScreen: Equatable {
     case home
     case durations(WakeDurationTarget)
-    case alwaysActive
     case alwaysActiveMode(WakeDurationTarget, WakeDurationOption)
     case defaultAlwaysActiveMode
+    case defaultSessionDuration(WakeDurationTarget)
     case settings
     case presets
     case presetActions(UUID)
@@ -1079,15 +1159,31 @@ struct WakeMenuItem<Action> {
     let description: String
 }
 
-enum WakeHomeAction {
-    case manageWake
+enum WakeHomeAction: Equatable {
+    case startWake
+    case changeWakeDuration
     case stopWake
     case startAll
+    case restartAll
     case startAlwaysActive
-    case manageAlwaysActive
+    case changeAlwaysActive
+    case stopAlwaysActive
     case stopAll
     case settings
     case exit
+
+    var primaryAction: WakeHomeAction {
+        switch self {
+        case .startWake, .stopWake, .changeWakeDuration:
+            .startWake
+        case .startAlwaysActive, .stopAlwaysActive, .changeAlwaysActive:
+            .startAlwaysActive
+        case .startAll, .stopAll, .restartAll:
+            .startAll
+        case .settings, .exit:
+            self
+        }
+    }
 }
 
 enum WakeDurationAction {
@@ -1096,9 +1192,8 @@ enum WakeDurationAction {
     case back
 }
 
-enum WakeAlwaysActiveAction {
-    case configure
-    case stop
+enum WakeDefaultDurationAction {
+    case duration(WakeDefaultDuration)
     case back
 }
 
@@ -1110,7 +1205,11 @@ enum WakeModeAction {
 enum WakeSettingsAction {
     case inactivityInterval
     case defaultAlwaysActiveMode
+    case defaultSessionDuration
+    case defaultAlwaysActiveDuration
     case presets
+    case toggleStopConfirmation
+    case toggleSessionChangeControls
     case clearData
     case back
 }
@@ -1133,22 +1232,35 @@ enum WakePresetEditAction {
 
 enum WakeUIContent {
     static func homeItems(snapshot: WakeUIStatusSnapshot) -> [WakeMenuItem<WakeHomeAction>] {
-        var items = [WakeMenuItem(action: WakeHomeAction.manageWake, label: snapshot.wakeSession == nil ? "Start wake session" : "Change wake duration", description: snapshot.wakeSession == nil ? "Keep the display awake for a preset or custom duration." : "Replace the current wake session with a new duration.")]
-        if snapshot.wakeSession != nil {
+        var items = [WakeMenuItem<WakeHomeAction>]()
+        let showChanges = snapshot.settings.showSessionChangeControls
+        if snapshot.wakeSession == nil {
+            items.append(WakeMenuItem(action: .startWake, label: "Start wake session", description: startDescription(target: .wake, settings: snapshot.settings)))
+        } else {
             items.append(WakeMenuItem(action: .stopWake, label: "Stop wake session", description: "Return display sleep behavior to the normal macOS settings."))
+            if showChanges {
+                items.append(WakeMenuItem(action: .changeWakeDuration, label: "Change wake duration", description: "Replace the current wake session with a new duration."))
+            }
         }
         let allAreInactive = snapshot.wakeSession == nil && snapshot.alwaysActiveSession == nil
         if snapshot.alwaysActiveSession == nil {
-            items.append(WakeMenuItem(action: .startAlwaysActive, label: "Start Always Active", description: "Choose a duration and keyboard or mouse activity simulation."))
+            items.append(WakeMenuItem(action: .startAlwaysActive, label: "Start Always Active", description: startDescription(target: .alwaysActive, settings: snapshot.settings)))
         } else {
-            items.append(WakeMenuItem(action: .manageAlwaysActive, label: "Manage Always Active", description: "Change or stop keyboard and mouse activity simulation."))
+            items.append(WakeMenuItem(action: .stopAlwaysActive, label: "Stop Always Active", description: "Stop simulating input after idle periods."))
+            if showChanges {
+                items.append(WakeMenuItem(action: .changeAlwaysActive, label: "Change Always Active", description: "Replace the current Always Active session with a new duration or mode."))
+            }
         }
-        items.append(WakeMenuItem(action: .startAll, label: allAreInactive ? "Start all sessions" : "Restart all sessions", description: "Start Wake and Always Active together for one shared duration."))
-        if snapshot.wakeSession != nil || snapshot.alwaysActiveSession != nil {
+        if allAreInactive {
+            items.append(WakeMenuItem(action: .startAll, label: "Start all sessions", description: startDescription(target: .all, settings: snapshot.settings)))
+        } else {
             items.append(WakeMenuItem(action: .stopAll, label: "Stop all sessions", description: "Stop both Wake and Always Active in one action."))
+            if showChanges {
+                items.append(WakeMenuItem(action: .restartAll, label: "Restart all sessions", description: "Choose a new duration and mode for Wake and Always Active together."))
+            }
         }
         items.append(contentsOf: [
-            WakeMenuItem(action: .settings, label: "Settings", description: "Customize Always Active defaults and duration presets."),
+            WakeMenuItem(action: .settings, label: "Settings", description: "Customize session defaults, confirmations, and duration presets."),
             WakeMenuItem(action: .exit, label: "Exit", description: "Close WakeMyMac and restore the previous terminal screen.")
         ])
         return items
@@ -1164,11 +1276,63 @@ enum WakeUIContent {
         return items
     }
 
-    static let alwaysActiveItems = [
-        WakeMenuItem(action: WakeAlwaysActiveAction.configure, label: "Change Always Active", description: "Choose a new duration and keyboard or mouse mode."),
-        WakeMenuItem(action: .stop, label: "Stop Always Active", description: "Stop simulating input after idle periods."),
-        WakeMenuItem(action: .back, label: "Back", description: "Return to the WakeMyMac actions.")
-    ]
+    static func defaultDurationOption(settings: WakeSettings, target: WakeDurationTarget = .wake) -> WakeDurationOption? {
+        switch defaultDurationChoice(settings: settings, target: target) {
+        case .interactive:
+            nil
+        case .indefinite:
+            .indefinite
+        case .preset(let id):
+            settings.durationPresets.first(where: { $0.id == id }).map { .timed($0.duration) }
+        }
+    }
+
+    static func defaultDurationLabel(settings: WakeSettings, target: WakeDurationTarget = .wake) -> String {
+        switch defaultDurationChoice(settings: settings, target: target) {
+        case .interactive:
+            "Ask every time"
+        case .indefinite:
+            "Indefinite"
+        case .preset(let id):
+            settings.durationPresets.first(where: { $0.id == id }).map { "\($0.name) (\(formatDuration($0.duration)))" } ?? "Ask every time"
+        }
+    }
+
+    static func defaultDurationItems(settings: WakeSettings, target: WakeDurationTarget = .wake) -> [WakeMenuItem<WakeDefaultDurationAction>] {
+        let name = target == .alwaysActive ? "Always Active" : "Wake"
+        let modeDescription = target == .alwaysActive ? " Always Active uses its saved default mode." : ""
+        var items = [
+            WakeMenuItem(action: WakeDefaultDurationAction.duration(.interactive), label: "Ask every time (default)", description: "Prompt for a duration on every \(name) start.\(target == .alwaysActive ? " Then choose a mode." : "")"),
+            WakeMenuItem(action: .duration(.indefinite), label: "Indefinite", description: "Start \(name) immediately until stopped.\(modeDescription)")
+        ]
+        items.append(contentsOf: settings.durationPresets.map { preset in
+            WakeMenuItem(action: .duration(.preset(preset.id)), label: preset.name, description: "Start \(name) immediately for \(formatDuration(preset.duration)).\(modeDescription)")
+        })
+        items.append(WakeMenuItem(action: .back, label: "Back", description: "Return to Settings without changing the default."))
+        return items
+    }
+
+    static func defaultDurationSelectionIndex(settings: WakeSettings, target: WakeDurationTarget = .wake) -> Int {
+        defaultDurationItems(settings: settings, target: target).firstIndex {
+            if case .duration(let duration) = $0.action {
+                return duration == defaultDurationChoice(settings: settings, target: target)
+            }
+            return false
+        } ?? 0
+    }
+
+    private static func defaultDurationChoice(settings: WakeSettings, target: WakeDurationTarget) -> WakeDefaultDuration {
+        target == .alwaysActive ? settings.defaultAlwaysActiveDuration : settings.defaultSessionDuration
+    }
+
+    private static func startDescription(target: WakeDurationTarget, settings: WakeSettings) -> String {
+        guard let option = defaultDurationOption(settings: settings, target: target) else {
+            return target == .wake ? "Choose a preset or custom duration to keep the display awake." : "Choose a duration and keyboard or mouse mode each time."
+        }
+        let timing = option.duration.map { "for \(formatDuration($0))" } ?? "until stopped"
+        let mode = target == .wake ? "" : " using \(settings.defaultAlwaysActiveMode.rawValue) mode"
+        return "Start immediately \(timing)\(mode). Change the default in Settings."
+    }
 
     static let modeItems = [
         WakeMenuItem(action: WakeModeAction.mode(.keyboard), label: "Keyboard (recommended)", description: "Press and release Shift after the Inactivity interval. Keeps the pointer still and does not type text; recommended for most setups."),
@@ -1189,7 +1353,11 @@ enum WakeUIContent {
         [
             WakeMenuItem(action: .inactivityInterval, label: "Inactivity interval  \(formatInactivityInterval(settings.inactivityInterval))", description: "Set how long Always Active waits after real user input."),
             WakeMenuItem(action: .defaultAlwaysActiveMode, label: "Default Always Active mode  \(settings.defaultAlwaysActiveMode.rawValue.capitalized)", description: "Choose the preselected mode for future Always Active sessions."),
+            WakeMenuItem(action: .defaultSessionDuration, label: "Default wake duration  \(defaultDurationLabel(settings: settings))", description: "Ask for a duration every time, or start Wake and Start All immediately with a saved choice."),
+            WakeMenuItem(action: .defaultAlwaysActiveDuration, label: "Default Always Active duration  \(defaultDurationLabel(settings: settings, target: .alwaysActive))", description: "Ask for a duration every time, or start Always Active immediately with a saved choice and default mode."),
             WakeMenuItem(action: .presets, label: "Duration presets  \(settings.durationPresets.count)", description: "Add, edit, reorder, delete, or reset named duration choices."),
+            WakeMenuItem(action: .toggleStopConfirmation, label: "Confirm before stopping  \(settings.confirmBeforeStopping ? "On" : "Off")", description: "Toggle confirmation before stopping Wake, Always Active, or all sessions."),
+            WakeMenuItem(action: .toggleSessionChangeControls, label: "Show session change controls  \(settings.showSessionChangeControls ? "On" : "Off")", description: "Show Change wake duration, Change Always Active, and Restart all sessions on the main menu."),
             WakeMenuItem(action: .clearData, label: "Remove all saved data", description: "Stop all sessions, delete ~/.wake and legacy session state, then close WakeMyMac."),
             WakeMenuItem(action: .back, label: "Back", description: "Return to the WakeMyMac actions.")
         ]

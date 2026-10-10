@@ -50,6 +50,10 @@ struct SettingsShow: ParsableCommand {
         let settings = try SettingsManager.current.load()
         cprint("Inactivity interval: \(formatInactivityInterval(settings.inactivityInterval))")
         cprint("Default Always Active mode: \(settings.defaultAlwaysActiveMode.rawValue)")
+        cprint("Default wake duration: \(WakeUIContent.defaultDurationLabel(settings: settings))")
+        cprint("Default Always Active duration: \(WakeUIContent.defaultDurationLabel(settings: settings, target: .alwaysActive))")
+        cprint("Confirm before stopping: \(settings.confirmBeforeStopping ? "on" : "off")")
+        cprint("Show session change controls: \(settings.showSessionChangeControls ? "on" : "off")")
         printPresets(settings.durationPresets)
     }
 }
