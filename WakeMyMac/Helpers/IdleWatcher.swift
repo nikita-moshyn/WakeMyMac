@@ -17,18 +17,18 @@ import Cocoa
 
 final class IdleWatcher {
     
-    private let timeout: TimeInterval
+    private let inactivityInterval: TimeInterval
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "IdleWatcherQueue")
     
-    private let timeoutHandler: (() -> Void)?
+    private let inactivityHandler: (() -> Void)?
     
     
-    init?(timeout: TimeInterval, timeoutHandler: (() -> Void)? = nil) {
-        self.timeout = timeout
-        self.timeoutHandler = timeoutHandler
+    init?(inactivityInterval: TimeInterval, inactivityHandler: (() -> Void)? = nil) {
+        self.inactivityInterval = inactivityInterval
+        self.inactivityHandler = inactivityHandler
         
         
         // Event mask defines the types of events to monitor (e.g., keyboard and mouse activity)
@@ -81,7 +81,7 @@ final class IdleWatcher {
     /// Sets up the timer to monitor user inactivity.
     private func setupTimer() {
         timer = DispatchSource.makeTimerSource(queue: queue)
-        timer?.schedule(deadline: .now() + timeout, repeating: timeout)
+        timer?.schedule(deadline: .now() + inactivityInterval, repeating: inactivityInterval)
         timer?.setEventHandler { [weak self] in
             self?.timerDidFire()
         }
@@ -90,12 +90,12 @@ final class IdleWatcher {
     
     /// Resets the timer when user activity is detected
     private func resetTimer() {
-        timer?.schedule(deadline: .now() + timeout, repeating: timeout)
+        timer?.schedule(deadline: .now() + inactivityInterval, repeating: inactivityInterval)
     }
     
-    /// Called when the timer fires, triggering the timeout handler
+    /// Called when the inactivity timer fires.
     private func timerDidFire() {
-        timeoutHandler?()
+        inactivityHandler?()
     }
     
     // MARK: - Event Tap Callback

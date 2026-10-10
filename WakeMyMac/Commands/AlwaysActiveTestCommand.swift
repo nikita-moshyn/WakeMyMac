@@ -58,9 +58,9 @@ private struct AlwaysActiveTestStartCommand: ParsableCommand {
 }
 
 private final class AlwaysActiveTestRunner {
-    private static let idleTimeout: TimeInterval = 1
+    private static let inactivityInterval: TimeInterval = 1
     private static let verificationDelay: TimeInterval = 0.15
-    private static let timeoutAllowance: TimeInterval = 2
+    private static let verificationAllowance: TimeInterval = 2
 
     private let mode: AlwaysActiveMode
     private var keyboardService: KeyboardEventService?
@@ -82,7 +82,7 @@ private final class AlwaysActiveTestRunner {
     }
 
     func run() -> Bool {
-        cprint("Starting \(mode.rawValue) test with a \(Self.idleTimeout)-second idle timeout.")
+        cprint("Starting \(mode.rawValue) test with a \(Self.inactivityInterval)-second Inactivity interval.")
         cprint("Do not use the keyboard, mouse, or trackpad until the test finishes.")
 
         let didStart = switch mode {
@@ -114,7 +114,7 @@ private final class AlwaysActiveTestRunner {
         keyboardService = service
         releasedKeyboardService = service
 
-        return service.startTestActivity(timeout: Self.idleTimeout) { [weak self] didGenerateEvent in
+        return service.startTestActivity(inactivityInterval: Self.inactivityInterval) { [weak self] didGenerateEvent in
             guard let self else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.verificationDelay) { [weak self] in
                 self?.finishKeyboardTest(didGenerateEvent: didGenerateEvent)
@@ -130,7 +130,7 @@ private final class AlwaysActiveTestRunner {
         mouseService = service
         releasedMouseService = service
 
-        return service.startTestActivity(timeout: Self.idleTimeout) { [weak self] didGenerateEvent in
+        return service.startTestActivity(inactivityInterval: Self.inactivityInterval) { [weak self] didGenerateEvent in
             guard let self else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.verificationDelay) { [weak self] in
                 self?.finishMouseTest(didGenerateEvent: didGenerateEvent)
@@ -198,7 +198,7 @@ private final class AlwaysActiveTestRunner {
             self?.finishTimedOutTest()
         }
         watchdog = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.idleTimeout + Self.timeoutAllowance, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.inactivityInterval + Self.verificationAllowance, execute: workItem)
     }
 
     private func finishTimedOutTest() {

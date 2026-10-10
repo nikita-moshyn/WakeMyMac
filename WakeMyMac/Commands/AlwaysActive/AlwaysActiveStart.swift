@@ -21,8 +21,14 @@ struct AlwaysActiveStart: ParsableCommand {
 
     private var manager = AlwaysActiveManager.current
 
-    @Argument(help: "Activity mode: 'keyboard'/'k' or 'mouse'/'m'.")
-    var mode: AlwaysActiveMode = .keyboard
+    @Argument(help: "Activity mode: 'keyboard'/'k' or 'mouse'/'m'. Omit to use the configured default.")
+    var mode: AlwaysActiveMode?
+
+    @Option(help: "Session duration (e.g. '30m' or '8h'). Omit for an indefinite session.")
+    var duration: String?
+
+    @Option(help: "Named duration preset. Cannot be combined with --duration.")
+    var preset: String?
 
     @Flag(name: .shortAndLong, help: "Force restart if already active.")
     var force: Bool = false
@@ -32,6 +38,8 @@ struct AlwaysActiveStart: ParsableCommand {
 
     private enum CodingKeys: String, CodingKey {
         case mode
+        case duration
+        case preset
         case force
         case debug
     }
@@ -43,6 +51,10 @@ struct AlwaysActiveStart: ParsableCommand {
     }
 
     func run() throws {
+        let selectedDuration = try resolveDuration()
+        let settings = try SettingsManager.current.load()
+        let selectedMode = resolveAlwaysActiveMode(mode, settings: settings)
+
         guard A11yService.isAccessibilityEnabled() else {
             try handleMissingAccessibilityPermission()
             return
@@ -62,12 +74,15 @@ struct AlwaysActiveStart: ParsableCommand {
             }
 
             try manager.start(
-                mode: mode,
+                mode: selectedMode,
+                duration: selectedDuration,
+                inactivityInterval: settings.inactivityInterval,
                 replacingActiveSession: shouldReplaceActiveSession,
                 force: force,
                 debug: debug,
                 onSuccess: {
-                    cprint("Always Active session started successfully.", .success)
+                    let durationDescription = selectedDuration.map(formatDuration) ?? "indefinite"
+                    cprint("Always Active session started successfully. Duration: \(durationDescription). Mode: \(selectedMode.rawValue). Inactivity interval: \(formatInactivityInterval(settings.inactivityInterval)).", .success)
                 },
                 onFailure: {}
             )
@@ -77,6 +92,22 @@ struct AlwaysActiveStart: ParsableCommand {
             cprint(error.localizedDescription, .error)
             throw ExitCode.failure
         }
+    }
+
+    private func resolveDuration() throws -> TimeInterval? {
+        guard duration == nil || preset == nil else {
+            throw ValidationError("Use either --duration or --preset, not both.")
+        }
+        if let duration {
+            guard let parsedDuration = parseDuration(duration) else {
+                throw ValidationError("Invalid duration '\(duration)'. Use a value such as '30m', '1h', or '1h30m'.")
+            }
+            return parsedDuration
+        }
+        if let preset {
+            return try SettingsManager.current.preset(named: preset).duration
+        }
+        return nil
     }
 
     private func handleMissingAccessibilityPermission() throws {

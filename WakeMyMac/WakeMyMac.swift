@@ -22,6 +22,7 @@ struct WakeMyMac: ParsableCommand {
         var subcommands: [ParsableCommand.Type] = [Start.self,
                                                     Stop.self,
                                                     Status.self,
+                                                    SettingsCommand.self,
                                                     WakeDaemon.self,
                                                     AlwaysActiveCommand.self,
                                                     AlwaysActiveDaemon.self]

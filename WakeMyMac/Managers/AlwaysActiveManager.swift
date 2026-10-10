@@ -41,9 +41,12 @@ final class AlwaysActiveManager {
         return .active(session)
     }
 
-    func start(mode: AlwaysActiveMode, replacingActiveSession: Bool = false, force: Bool = false, debug: Bool = false, onSuccess: @escaping () -> Void, onFailure: @escaping () -> Void) throws {
+    func start(mode: AlwaysActiveMode, duration: TimeInterval? = nil, inactivityInterval: TimeInterval = WakeSettings.defaultInactivityInterval, replacingActiveSession: Bool = false, force: Bool = false, debug: Bool = false, onSuccess: @escaping () -> Void, onFailure: @escaping () -> Void) throws {
         guard A11yService.isAccessibilityEnabled() else {
             throw AlwaysActiveManagerError.accessibilityPermissionRequired
+        }
+        guard inactivityIntervalIsValid(inactivityInterval), duration?.isFinite != false, duration.map({ $0 > 0 }) ?? true else {
+            throw AlwaysActiveManagerError.invalidConfiguration
         }
 
         if let session = try status() {
@@ -59,14 +62,17 @@ final class AlwaysActiveManager {
         }
 
         let daemon = DmnService.createBackgroundDaemon()
-        daemon.arguments = ["always-active-daemon", "--start", "--mode", mode.rawValue]
+        daemon.arguments = ["always-active-daemon", "--start", "--mode", mode.rawValue, "--inactivity-interval", "\(inactivityInterval)"]
+        if let duration {
+            daemon.arguments?.append(contentsOf: ["--duration", "\(duration)"])
+        }
 
         do {
             let result = try SigService.waitForDaemonStartup {
                 try daemon.run()
                 dprint("Started daemon (PID \(daemon.processIdentifier)).", debug)
 
-                let session = AlwaysActiveSession(daemonID: daemon.processIdentifier, mode: mode)
+                let session = AlwaysActiveSession(daemonID: daemon.processIdentifier, mode: mode, duration: duration, inactivityInterval: inactivityInterval)
                 try storage.saveAlwaysActiveSession(session)
             }
             guard result == .success else {
@@ -119,6 +125,7 @@ enum AlwaysActiveStatusResult {
 
 enum AlwaysActiveManagerError: LocalizedError {
     case accessibilityPermissionRequired
+    case invalidConfiguration
     case alreadyActive
     case couldNotStart
     case couldNotStopExistingSession
@@ -128,6 +135,8 @@ enum AlwaysActiveManagerError: LocalizedError {
         switch self {
         case .accessibilityPermissionRequired:
             "Always Active requires Accessibility access for Terminal."
+        case .invalidConfiguration:
+            "Always Active duration and Inactivity interval must be greater than zero."
         case .alreadyActive:
             "An Always Active session is already active."
         case .couldNotStart:

@@ -42,6 +42,13 @@ struct AlwaysActiveStatus: ParsableCommand {
                 cprint("Always Active is inactive. Stale session state was removed.")
             case .active(let session):
                 cprint("Always Active session is active in \(session.mode.rawValue) mode.", .success)
+                let status = SessionStatus(session: session)
+                if let remainingTime = status?.remainingTime {
+                    cprint("Time remaining: \(formatDuration(remainingTime))")
+                } else {
+                    cprint("Session duration: indefinite.")
+                }
+                cprint("Inactivity interval: \(formatInactivityInterval(session.inactivityInterval))")
                 dprint("Daemon ID: \(session.daemonID)", debug)
             }
         } catch {

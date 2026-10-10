@@ -14,4 +14,6 @@
 
 enum AppServices {
     static let sessionStorage: any SessionStorage = FileSessionStorage.shared
+    static let settingsStorage: any SettingsStorage = FileSessionStorage.shared
+    static let applicationDataStorage: any ApplicationDataStorage = FileSessionStorage.shared
 }

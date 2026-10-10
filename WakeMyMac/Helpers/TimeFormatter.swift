@@ -29,6 +29,25 @@ func formatDuration(_ interval: TimeInterval) -> String {
     return "\(seconds)s"
 }
 
+func formatInactivityInterval(_ interval: TimeInterval) -> String {
+    guard inactivityIntervalIsValid(interval) else { return "invalid" }
+    let totalSeconds = max(Int(ceil(interval)), 0)
+    let hours = totalSeconds / 3600
+    let minutes = (totalSeconds % 3600) / 60
+    let seconds = totalSeconds % 60
+    var components = [String]()
+    if hours > 0 {
+        components.append("\(hours)h")
+    }
+    if minutes > 0 {
+        components.append("\(minutes)m")
+    }
+    if seconds > 0 || components.isEmpty {
+        components.append("\(seconds)s")
+    }
+    return components.joined(separator: " ")
+}
+
 func parseDuration(_ input: String) -> TimeInterval? {
     let pattern = #"^(?:(\d+)h)?(?:(\d+)m)?$"#
     guard let regex = try? NSRegularExpression(pattern: pattern),
@@ -37,10 +56,48 @@ func parseDuration(_ input: String) -> TimeInterval? {
         return nil
     }
 
-    let hours = Range(match.range(at: 1), in: input).flatMap { Int(input[$0]) } ?? 0
-    let minutes = Range(match.range(at: 2), in: input).flatMap { Int(input[$0]) } ?? 0
-    let duration = hours * 3600 + minutes * 60
+    func capturedInteger(at index: Int) -> Int? {
+        let range = match.range(at: index)
+        guard range.location != NSNotFound else { return 0 }
+        guard let stringRange = Range(range, in: input) else { return nil }
+        return Int(input[stringRange])
+    }
+
+    guard let hours = capturedInteger(at: 1), let minutes = capturedInteger(at: 2) else { return nil }
+    let (hourSeconds, hoursOverflowed) = hours.multipliedReportingOverflow(by: 3600)
+    let (minuteSeconds, minutesOverflowed) = minutes.multipliedReportingOverflow(by: 60)
+    let (duration, sumOverflowed) = hourSeconds.addingReportingOverflow(minuteSeconds)
+    guard !hoursOverflowed, !minutesOverflowed, !sumOverflowed else { return nil }
     return duration > 0 ? TimeInterval(duration) : nil
+}
+
+func parseInactivityInterval(_ input: String) -> TimeInterval? {
+    let pattern = #"^\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?\s*$"#
+    guard let regex = try? NSRegularExpression(pattern: pattern),
+          let match = regex.firstMatch(in: input, range: NSRange(input.startIndex..., in: input)),
+          match.range.length == input.utf16.count else {
+        return nil
+    }
+
+    func capturedInteger(at index: Int) -> Int? {
+        let range = match.range(at: index)
+        guard range.location != NSNotFound else { return 0 }
+        guard let stringRange = Range(range, in: input) else { return nil }
+        return Int(input[stringRange])
+    }
+
+    guard let hours = capturedInteger(at: 1), let minutes = capturedInteger(at: 2), let seconds = capturedInteger(at: 3) else { return nil }
+    let (hourSeconds, hoursOverflowed) = hours.multipliedReportingOverflow(by: 3600)
+    let (minuteSeconds, minutesOverflowed) = minutes.multipliedReportingOverflow(by: 60)
+    let (hoursAndMinutes, firstSumOverflowed) = hourSeconds.addingReportingOverflow(minuteSeconds)
+    let (duration, finalSumOverflowed) = hoursAndMinutes.addingReportingOverflow(seconds)
+    guard !hoursOverflowed, !minutesOverflowed, !firstSumOverflowed, !finalSumOverflowed, duration > 0 else { return nil }
+    let interval = TimeInterval(duration)
+    return inactivityIntervalIsValid(interval) ? interval : nil
+}
+
+func inactivityIntervalIsValid(_ interval: TimeInterval) -> Bool {
+    interval.isFinite && interval >= 1 && interval < TimeInterval(Int.max)
 }
 
 extension Date {
