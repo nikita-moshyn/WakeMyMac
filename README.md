@@ -16,14 +16,14 @@
 
 ## Requirements
 
-- macOS 12 or later.
-- Xcode 13 or later (for building from source).
+- macOS 14.7 or later for precompiled releases.
+- A compatible Xcode toolchain is needed only when building from source.
 
 ## Installation
 
 ### Via Homebrew
 
-####
+WakeMyMac's release workflow publishes precompiled Homebrew bottles for Intel and Apple Silicon on macOS 14.7 and later. Bottled installations and upgrades do not build WakeMyMac or require Xcode. Homebrew's own [installation requirements](https://docs.brew.sh/Installation) still apply.
 
 If you have already added the custom tap, you can update and install without removing it.
 
@@ -47,6 +47,12 @@ brew install wakemymac
 brew update
 brew upgrade wakemymac
 ```
+
+Maintainers: push a new `vX.Y.Z` tag to build the binary and bottles. To add bottles to the current release, run **Release WakeMyMac** manually in GitHub Actions and enter its tag, such as `v2.1.0`. The workflow checks installation with Xcode and Command Line Tools detection disabled, uploads both bottle assets, and only then updates the formula. Existing taps and upgrade commands continue to work.
+
+If a release fails after uploading bottles, rerun the workflow or choose **Re-run failed jobs**. The publishing job checks the current release assets on every attempt and selects a new bottle rebuild number, so a failed formula push or partial upload can be retried without replacing published downloads.
+
+If a failed release has no complete binary archive, the workflow rebuilds its exact tag, including during a manual repair. Releases remain drafts until the archive and both bottles have uploaded successfully; only then does the workflow publish the release and update the tap. Packaging and recovery tests also run on pull requests.
 
 ## Usage
 
