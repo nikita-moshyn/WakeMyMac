@@ -1,0 +1,44 @@
+name: Validate Homebrew releases
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'Formula/**'
+      - 'scripts/**'
+  push:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/**'
+      - 'Formula/**'
+      - 'scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test packaging and release recovery
+        run: |
+          set -euo pipefail
+          /usr/bin/ruby scripts/test-homebrew-release.rb
+          /usr/bin/ruby scripts/test-release-workflow.rb
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate GitHub Actions workflows
+        run: |
+          set -euo pipefail
+          # GitHub's parser supports queue: max, which actionlint does not yet parse.
+          PARSER_DIRECTORY="$RUNNER_TEMP/workflow-parser"
+          npm install --prefix "$PARSER_DIRECTORY" --ignore-scripts --no-audit --no-fund \
+            --package-lock=false @actions/workflow-parser@0.3.61 tsx@4.23.15
+          WORKFLOW_PARSER_PATH="$PARSER_DIRECTORY/node_modules/@actions/workflow-parser/dist/index.js" \
+            node --import "$PARSER_DIRECTORY/node_modules/tsx/dist/loader.mjs" scripts/validate-workflows.mjs

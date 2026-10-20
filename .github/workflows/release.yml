@@ -18,6 +18,7 @@ permissions:
 concurrency:
   group: wakemymac-release
   cancel-in-progress: false
+  queue: max
 
 env:
   HOMEBREW_NO_AUTO_UPDATE: '1'
@@ -26,11 +27,41 @@ env:
   HOMEBREW_NO_AUTOREMOVE: '1'
 
 jobs:
+  prepare:
+    runs-on: macos-15
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
+    outputs:
+      has_binary: ${{ steps.release.outputs.has_binary }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Validate release scripts
+        run: |
+          set -euo pipefail
+          /usr/bin/ruby scripts/test-homebrew-release.rb
+          /usr/bin/ruby scripts/test-release-workflow.rb
+
+      - name: Inspect the release and its binary asset
+        id: release
+        run: |
+          set -euo pipefail
+          /usr/bin/ruby scripts/release-state.rb \
+            --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" \
+            --event "$GITHUB_EVENT_NAME" --output release-assets.json >> "$GITHUB_OUTPUT"
+
   build:
-    if: github.event_name == 'push'
+    needs: prepare
+    if: needs.prepare.outputs.has_binary != 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
       - name: Set up Xcode for the release build
         uses: maxim-lobanov/setup-xcode@v1
@@ -39,7 +70,7 @@ jobs:
 
       - name: Build and package the tagged source
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           VERSION="${RELEASE_TAG#v}"
@@ -75,49 +106,46 @@ jobs:
           if-no-files-found: error
 
   homebrew:
-    needs: build
-    if: ${{ !cancelled() && (needs.build.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    needs: [prepare, build]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     runs-on: macos-15
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
       RELEASE_TAP: wakemymac/release-build
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      # Use current packaging scripts even when repairing an older release.
+      # This job can be rerun without prepare, including after a successful tap
+      # push. Start from the current formula and validate these scripts again.
       - uses: actions/checkout@v4
         with:
           ref: main
           token: ${{ secrets.PAT_TOKEN || github.token }}
 
-      - name: Validate the release tag and packaging scripts
+      - name: Validate the current packaging scripts
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
           /usr/bin/ruby scripts/test-homebrew-release.rb
+          /usr/bin/ruby scripts/test-release-workflow.rb
 
-      - name: Check whether this release already has a binary
+      # Failed-job reruns reuse prepare's successful outputs. Inspect again so
+      # partial uploads and rebuild numbers reflect the state at this attempt.
+      - name: Refresh the release state
         id: release
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets > release-assets.json; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            echo "No existing release found for $RELEASE_TAG" >&2
-            exit 1
-          else
-            echo 'exists=false' >> "$GITHUB_OUTPUT"
-            printf '{"assets":[]}\n' > release-assets.json
-          fi
+          /usr/bin/ruby scripts/release-state.rb \
+            --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" \
+            --event "$GITHUB_EVENT_NAME" --output release-assets.json >> "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@v4
-        if: steps.release.outputs.exists == 'false'
+        if: steps.release.outputs.has_binary != 'true'
         with:
           name: release-binary
           path: release-input
 
       - name: Download the existing binary for a bottle repair
-        if: steps.release.outputs.exists == 'true'
+        if: steps.release.outputs.has_binary == 'true'
         run: |
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern "WakeMyMac_$VERSION.tar.gz" --dir release-input
@@ -164,24 +192,32 @@ jobs:
       - name: Verify installation without Xcode or Command Line Tools
         run: |
           set -euo pipefail
-          brew uninstall "$RELEASE_TAP/wakemymac"
+          brew uninstall --formula --ignore-dependencies "$RELEASE_TAP/wakemymac"
           cp Formula/wakemymac.rb "$(brew --repository "$RELEASE_TAP")/Formula/wakemymac.rb"
           brew ruby scripts/verify-homebrew-bottle.rb "$RELEASE_TAP/wakemymac" dist
 
       - name: Publish the release assets
         env:
           RELEASE_EXISTS: ${{ steps.release.outputs.exists }}
+          BINARY_EXISTS: ${{ steps.release.outputs.has_binary }}
+          REPLACE_INCOMPLETE_BINARY: ${{ steps.release.outputs.replace_incomplete_binary }}
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_EXISTS" == true ]]; then
-            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              dist/wakemymac-"$VERSION".*.bottle*.tar.gz
-          else
+          if [[ "$RELEASE_EXISTS" != true ]]; then
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --verify-tag --title "$RELEASE_TAG" --generate-notes \
-              "release-input/WakeMyMac_$VERSION.tar.gz" \
-              dist/wakemymac-"$VERSION".*.bottle*.tar.gz
+              --verify-tag --title "$RELEASE_TAG" --generate-notes --draft
           fi
+          if [[ "$BINARY_EXISTS" != true ]]; then
+            if [[ "$REPLACE_INCOMPLETE_BINARY" == true ]]; then
+              gh release delete-asset "$RELEASE_TAG" "WakeMyMac_$VERSION.tar.gz" \
+                --repo "$GITHUB_REPOSITORY" --yes
+            fi
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              "release-input/WakeMyMac_$VERSION.tar.gz"
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            dist/wakemymac-"$VERSION".*.bottle*.tar.gz
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --verify-tag
 
       - name: Update the tap after its bottles are available
         run: |

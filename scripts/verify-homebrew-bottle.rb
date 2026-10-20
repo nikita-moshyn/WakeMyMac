@@ -1,6 +1,7 @@
 # Run with `brew ruby scripts/verify-homebrew-bottle.rb TAP/wakemymac ASSET_DIRECTORY`.
 # This installs into the selected Homebrew prefix; use a disposable CI runner.
 require "digest"
+require "fileutils"
 require "formula"
 require "formula_installer"
 require "install"
