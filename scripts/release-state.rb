@@ -18,7 +18,8 @@ module ReleaseState
       unless /release not found|HTTP 404/i.match?(stderr)
         raise "Cannot inspect the release: #{stderr.strip}"
       end
-      raise "No existing release found for #{tag}" if event_name == "workflow_dispatch"
+      # A failed build can leave a Git tag without a release. A manual run can
+      # rebuild it; checkout and gh release create --verify-tag require the tag.
     end
 
     release = exists ? JSON.parse(stdout) : { "assets" => [], "isDraft" => true }

@@ -54,6 +54,8 @@ If a release fails after uploading bottles, rerun the workflow or choose **Re-ru
 
 If a failed release has no complete binary archive, the workflow rebuilds its exact tag, including during a manual repair. Releases remain drafts until the archive and both bottles have uploaded successfully; only then does the workflow publish the release and update the tap. Packaging and recovery tests also run on pull requests.
 
+After fixing the workflow itself, start a new manual run from `main` with the existing tag. GitHub's **Re-run failed jobs** uses the workflow from the original run. A manual run can also recover a tag whose build failed before creating a release.
+
 ## Usage
 
 Once installed, use the command `wake` to manage your wake sessions.
