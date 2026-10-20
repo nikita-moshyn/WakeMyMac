@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to add or repair Homebrew bottles (for example v2.1.0)
+        description: Existing Git tag to release or repair Homebrew bottles (for example v2.1.0)
         required: true
         type: string
 
@@ -92,7 +92,7 @@ jobs:
             build/arm64/Build/Products/Release/WakeMyMac \
             -output release-input/staging/WakeMyMac_universal
           for ARCH in x86_64 arm64; do
-            lipo -verify_arch "$ARCH" release-input/staging/WakeMyMac_universal
+            lipo release-input/staging/WakeMyMac_universal -verify_arch "$ARCH"
           done
           chmod +x release-input/staging/WakeMyMac_universal
           codesign --force --sign - release-input/staging/WakeMyMac_universal
@@ -171,7 +171,7 @@ jobs:
           brew install --build-bottle "$RELEASE_TAP/wakemymac"
           brew test "$RELEASE_TAP/wakemymac"
           for ARCH in x86_64 arm64; do
-            lipo -verify_arch "$ARCH" "$(brew --prefix "$RELEASE_TAP/wakemymac")/bin/wake"
+            lipo "$(brew --prefix "$RELEASE_TAP/wakemymac")/bin/wake" -verify_arch "$ARCH"
           done
 
       - name: Create relocatable bottles for Intel and Apple Silicon

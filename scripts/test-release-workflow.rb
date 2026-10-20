@@ -161,6 +161,48 @@ class ReleaseWorkflowTest < Minitest::Test
     assert_equal %w[view create upload upload edit], state["events"].map { |event| event[1] }
   end
 
+  def test_workflow_architecture_checks_accept_universal_files_and_reject_each_missing_slice
+    skip "Mach-O checks require macOS" unless RUBY_PLATFORM.include?("darwin")
+
+    slices = %w[x86_64 arm64].to_h do |architecture|
+      path = File.join(@directory, "#{architecture}.o")
+      _, stderr, status = Open3.capture3(
+        "/usr/bin/clang", "-target", "#{architecture}-apple-macos14.7", "-x", "c", "-c", "-o", path, "-",
+        stdin_data: "int release_fixture(void) { return 0; }\n"
+      )
+      assert status.success?, stderr
+      [architecture, path]
+    end
+    universal = File.join(@directory, "universal.o")
+    _, stderr, status = Open3.capture3("/usr/bin/lipo", "-create", *slices.values, "-output", universal)
+    assert status.success?, stderr
+
+    prefix = File.join(@directory, "test prefix")
+    File.write(File.join(@directory, "bin/brew"), "#!/usr/bin/env ruby\nputs ENV.fetch('TEST_FORMULA_PREFIX')\n")
+    File.chmod(0o755, File.join(@directory, "bin/brew"))
+    environment = @environment.merge("RELEASE_TAP" => "wakemymac/release-build", "TEST_FORMULA_PREFIX" => prefix)
+    workflow = YAML.load_file(File.join(ROOT, ".github/workflows/release.yml"))
+    {
+      "build" => ["Build and package the tagged source", "release-input/staging/WakeMyMac_universal"],
+      "homebrew" => ["Generate and install the formula for bottling", File.join(prefix, "bin/wake")]
+    }.each do |job, (name, destination)|
+      step = workflow.fetch("jobs").fetch(job).fetch("steps").find { |entry| entry["name"] == name }
+      verification = step.fetch("run").scan(/^for ARCH in [^\n]+; do\n.*?^done$/m).find do |loop|
+        loop.include?("-verify_arch")
+      end
+      refute_nil verification, "#{job} must verify the binary's architectures"
+      destination = File.expand_path(destination, @directory)
+      FileUtils.mkdir_p(File.dirname(destination))
+      { "universal" => universal }.merge(slices).each do |kind, fixture|
+        FileUtils.cp(fixture, destination)
+        _, stderr, status = Open3.capture3(
+          environment, "bash", "-c", "set -euo pipefail\n#{verification}", chdir: @directory
+        )
+        assert_equal kind == "universal", status.success?, "#{job} checked #{kind}: #{stderr}"
+      end
+    end
+  end
+
   def test_manual_repair_rebuilds_a_draft_that_has_no_archive
     reset_release(release(draft: true))
     _, stderr, status = inspect_release("workflow_dispatch")
@@ -252,10 +294,15 @@ class ReleaseWorkflowTest < Minitest::Test
     refute File.exist?(@manifest)
   end
 
-  def test_manual_repair_rejects_a_nonexistent_release
+  def test_manual_retry_can_finish_a_tag_that_failed_before_release_creation
     _, stderr, status = inspect_release("workflow_dispatch")
-    refute status.success?
-    assert_includes stderr, "No existing release found"
-    assert_equal ["view"], state["events"].map { |event| event[1] }
+    assert status.success?, stderr
+    assert_equal "false", @outputs["exists"]
+    assert_equal "false", @outputs["has_binary"]
+    _, stderr, status = publish
+    assert status.success?, stderr
+    assert_equal false, state["release"]["isDraft"]
+    assert_equal 3, state["release"]["assets"].size
+    assert_equal %w[view create upload upload edit], state["events"].map { |event| event[1] }
   end
 end
