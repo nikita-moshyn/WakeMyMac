@@ -100,13 +100,14 @@ jobs:
         id: release
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets > release-assets.json; then
             echo 'exists=true' >> "$GITHUB_OUTPUT"
           elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             echo "No existing release found for $RELEASE_TAG" >&2
             exit 1
           else
             echo 'exists=false' >> "$GITHUB_OUTPUT"
+            printf '{"assets":[]}\n' > release-assets.json
           fi
 
       - uses: actions/download-artifact@v4
@@ -128,6 +129,7 @@ jobs:
             --version "$VERSION" --repository "$GITHUB_REPOSITORY" \
             --archive "release-input/WakeMyMac_$VERSION.tar.gz" \
             --previous-formula Formula/wakemymac.rb \
+            --release-assets release-assets.json \
             --output Formula/wakemymac.rb
           brew tap-new --no-git "$RELEASE_TAP"
           TAP_DIR="$(brew --repository "$RELEASE_TAP")"
@@ -164,10 +166,7 @@ jobs:
           set -euo pipefail
           brew uninstall "$RELEASE_TAP/wakemymac"
           cp Formula/wakemymac.rb "$(brew --repository "$RELEASE_TAP")/Formula/wakemymac.rb"
-          CACHE_FILE="$(brew --cache --formula "$RELEASE_TAP/wakemymac")"
-          mkdir -p "$(dirname "$CACHE_FILE")"
-          cp dist/wakemymac-"$VERSION".arm64_sonoma.bottle*.tar.gz "$CACHE_FILE"
-          brew ruby scripts/verify-homebrew-bottle.rb "$RELEASE_TAP/wakemymac"
+          brew ruby scripts/verify-homebrew-bottle.rb "$RELEASE_TAP/wakemymac" dist
 
       - name: Publish the release assets
         env:

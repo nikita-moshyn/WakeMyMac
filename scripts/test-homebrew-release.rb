@@ -44,6 +44,12 @@ class HomebrewReleaseTest < Minitest::Test
     File.read(@output)
   end
 
+  def assets_manifest(*names)
+    manifest = File.join(@directory, "release-assets.json")
+    File.write(manifest, JSON.generate("assets" => names.map { |name| { "name" => name } }))
+    manifest
+  end
+
   def test_generates_downloadable_bottles_for_both_architectures
     formula = generate
     checksum = Digest::SHA256.file(@bottle_path).hexdigest
@@ -120,5 +126,39 @@ class HomebrewReleaseTest < Minitest::Test
     formula = File.read(@output)
     assert_includes formula, "    rebuild 1\n"
     refute_includes formula, "sha256 cellar:"
+  end
+
+  def test_retries_an_upload_that_succeeded_before_the_formula_push
+    generate(with_bottle: false)
+    assets = assets_manifest(
+      "WakeMyMac_2.1.0.tar.gz",
+      "wakemymac-2.1.0.arm64_sonoma.bottle.tar.gz",
+      "wakemymac-2.1.0.sonoma.bottle.tar.gz"
+    )
+    HomebrewRelease.generate(
+      version: "2.1.0", repository: "nikita-moshyn/WakeMyMac",
+      archive: @archive, output: @output, previous_formula: @output, release_assets: assets
+    )
+    assert_includes File.read(@output), "    rebuild 1\n"
+  end
+
+  def test_skips_a_rebuild_when_only_one_platform_was_uploaded
+    assets = assets_manifest("wakemymac-2.1.0.arm64_sonoma.bottle.3.tar.gz")
+    assert_equal 4, HomebrewRelease.next_rebuild("2.1.0", nil, release_assets: assets)
+  end
+
+  def test_published_assets_cannot_lower_the_formula_rebuild
+    @metadata.values.first["bottle"]["rebuild"] = 5
+    generate
+    assets = assets_manifest("wakemymac-2.1.0.sonoma.bottle.1.tar.gz")
+    assert_equal 6, HomebrewRelease.next_rebuild("2.1.0", @output, release_assets: assets)
+  end
+
+  def test_ignores_other_releases_and_non_bottle_assets
+    assets = assets_manifest(
+      "WakeMyMac_2.1.0.tar.gz", "wakemymac-2.0.0.sonoma.bottle.9.tar.gz",
+      "wakemymac--2.1.0.arm64_sequoia.bottle.tar.gz"
+    )
+    assert_equal 0, HomebrewRelease.next_rebuild("2.1.0", nil, release_assets: assets)
   end
 end

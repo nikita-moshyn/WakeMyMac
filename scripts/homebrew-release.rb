@@ -11,21 +11,37 @@ module HomebrewRelease
   # on Sonoma and newer, on either CPU, without relocating the executable.
   BOTTLE_TAGS = %w[arm64_sonoma sonoma].freeze
 
-  def self.next_rebuild(version, previous_formula)
-    return 0 unless previous_formula
+  def self.next_rebuild(version, previous_formula, release_assets: nil)
+    rebuild = 0
+    if previous_formula
+      previous = File.read(previous_formula)
+      previous_version = previous[/^  version "([^"]+)"$/, 1]
+      raise ArgumentError, "The previous formula must specify its version" unless previous_version
 
-    previous = File.read(previous_formula)
-    previous_version = previous[/^  version "([^"]+)"$/, 1]
-    raise ArgumentError, "The previous formula must specify its version" unless previous_version
+      comparison = version.split(".").map(&:to_i) <=> previous_version.split(".").map(&:to_i)
+      raise ArgumentError, "Refusing to downgrade the tap to an older release" if comparison.negative?
+      if comparison.zero? && previous.include?("  bottle do\n")
+        rebuild = previous[/^    rebuild (\d+)$/, 1].to_i + 1
+      end
+    end
 
-    comparison = version.split(".").map(&:to_i) <=> previous_version.split(".").map(&:to_i)
-    raise ArgumentError, "Refusing to downgrade the tap to an older release" if comparison.negative?
-    return 0 unless comparison.zero? && previous.include?("  bottle do\n")
+    if release_assets
+      assets = JSON.parse(File.read(release_assets)).fetch("assets") || []
+      pattern = /\Awakemymac-#{Regexp.escape(version)}\.(?:#{Regexp.union(BOTTLE_TAGS)})\.bottle(?:\.(\d+))?\.tar\.gz\z/
+      assets.each do |asset|
+        match = pattern.match(asset.fetch("name"))
+        next unless match
 
-    previous[/^    rebuild (\d+)$/, 1].to_i + 1
+        # An upload can have succeeded even when the formula push failed.
+        # Reserve new names without replacing assets that users may have cached.
+        rebuild = [rebuild, match[1].to_i + 1].max
+      end
+    end
+
+    rebuild
   end
 
-  def self.generate(version:, repository:, archive:, output:, bottle_json: nil, previous_formula: nil)
+  def self.generate(version:, repository:, archive:, output:, bottle_json: nil, previous_formula: nil, release_assets: nil)
     raise ArgumentError, "Expected a version such as 2.1.0" unless /\A\d+\.\d+\.\d+\z/.match?(version)
     unless /\A[\w.-]+\/[\w.-]+\z/.match?(repository)
       raise ArgumentError, "Expected a GitHub owner/repository"
@@ -33,7 +49,7 @@ module HomebrewRelease
 
     root_url = "https://github.com/#{repository}/releases/download/v#{version}"
     bottle_block = ""
-    rebuild = next_rebuild(version, previous_formula)
+    rebuild = next_rebuild(version, previous_formula, release_assets: release_assets)
     archive_checksum = Digest::SHA256.file(archive).hexdigest
     if previous_formula
       previous = File.read(previous_formula)
@@ -126,6 +142,7 @@ if $PROGRAM_NAME == __FILE__
     parser.on("--output PATH") { |value| options[:output] = value }
     parser.on("--bottle-json PATH") { |value| options[:bottle_json] = value }
     parser.on("--previous-formula PATH") { |value| options[:previous_formula] = value }
+    parser.on("--release-assets PATH") { |value| options[:release_assets] = value }
   end.parse!
 
   HomebrewRelease.generate(**options)

@@ -50,6 +50,8 @@ brew upgrade wakemymac
 
 Maintainers: push a new `vX.Y.Z` tag to build the binary and bottles. To add bottles to the current release, run **Release WakeMyMac** manually in GitHub Actions and enter its tag, such as `v2.1.0`. The workflow checks installation with Xcode and Command Line Tools detection disabled, uploads both bottle assets, and only then updates the formula. Existing taps and upgrade commands continue to work.
 
+If a release fails after uploading bottles, rerun the workflow. It checks the existing release assets and selects a new bottle rebuild number, so a failed formula push or partial upload can be retried without replacing published downloads.
+
 ## Usage
 
 Once installed, use the command `wake` to manage your wake sessions.
